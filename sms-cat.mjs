@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 
-import fs from 'fs'
 import crypto from 'crypto'
 import minimist from 'minimist'
 import logger from './src/logger.mjs'
 import { createAxiosWithRetry, createBasicAuthConfig } from './src/axiosConfig.mjs'
 import { ERROR_RETRY_DELAY, HTTP_STATUS } from './src/constants.mjs'
-import TelegramClient from './src/telegramClient.mjs'
+import { loadConfig } from './src/config.mjs'
 
 const axios = createAxiosWithRetry();
 let configFilePath = 'config.json';
@@ -19,12 +18,11 @@ if (typeof argv['config'] !== 'undefined') {
   configFilePath = argv['config'];
 }
 
-let config ;
+let config;
 try {
-  let rawConfig = fs.readFileSync(configFilePath);
-  config = JSON.parse(rawConfig);
+  config = loadConfig(configFilePath);
 } catch(exception) {
-  console.error('config file ' + configFilePath + ' could not be read');
+  console.error(exception.message);
   process.exit(1);
 }
 

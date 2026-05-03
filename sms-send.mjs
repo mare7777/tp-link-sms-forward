@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // Send SMS via router
 
-import fs from 'fs'
 import minimist from 'minimist'
 import RouterClient from './src/routerClient.mjs'
 import { TP_ACT, TP_CONTROLLERS } from './src/routerProtocol.mjs'
+import { loadConfig } from './src/config.mjs'
 
 // change these values if you do not want to provide them as args
 // using the config.json file is recommended
@@ -30,13 +30,12 @@ if (typeof argv['config'] !== 'undefined') {
 }
 
 try {
-  let rawConfig = fs.readFileSync(configFilePath);
-  let config = JSON.parse(rawConfig);
+  const config = loadConfig(configFilePath);
   routerUiUrl = config.url;
   routerUiLogin = config.login;
   routerUiPassword = config.password;
 } catch(exception) {
-  console.log('config file ' + configFilePath + ' could not be read, skipping')
+  console.log(exception.message + ', skipping')
 }
 
 if (typeof argv['url'] !== 'undefined') {
