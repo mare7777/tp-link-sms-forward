@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import fs from 'fs'
+import crypto from 'crypto'
 import minimist from 'minimist'
 import logger from './src/logger.mjs'
 import { createAxiosWithRetry, createBasicAuthConfig } from './src/axiosConfig.mjs'
@@ -33,6 +34,14 @@ class SmsPoller {
     this.url = config.url;
     this.callback = callback;
     this.axiosConfig = createBasicAuthConfig(config.login, config.password);
+    this.markReadConcurrency = 3;
+    this.markReadRetryDelay = 2000;
+    this.maxMarkReadRetry = 5;
+    this.markReadRetryQueue = [];
+    this.markReadRetryTimer = null;
+    this.markReadProcessing = false;
+    this.dedupCacheTtlMs = 10 * 60 * 1000;
+    this.dedupCache = new Map();
   }
 
   // noinspection InfiniteRecursionJS
@@ -84,29 +93,117 @@ class SmsPoller {
   }
     
   async processUnreadSms(unreadSms) {
-    const start = async () => {
-      await this.asyncForEach(unreadSms, async (element) => {
-        try {
-          await axios.patch(this.url + "/api/v1/sms/inbox/" + element.order, null, this.axiosConfig);
-        } catch(exception) {
-          // catch network errors
-          logger.error("Error while processing SMS. " + exception.message);
-        }
-        
-        let smsData = {
-          from: element.from,
-          content: element.content,
-          receivedTime: element.receivedTime,
-        };
+    for (const element of unreadSms) {
+      const smsData = {
+        from: element.from,
+        content: element.content,
+        receivedTime: element.receivedTime,
+      };
+
+      if (this.shouldForward(smsData)) {
         this.callback(smsData);
-      });
+        logger.info("SMS forwarded", { sms: smsData });
+      } else {
+        logger.notice("Duplicate SMS skipped", { sms: smsData });
+      }
     }
-    return start();
+
+    await this.markUnreadAsRead(unreadSms);
   }
 
-  async asyncForEach(array, callback) {
-    for (let index = 0; index < array.length; index++) {
-      await callback(array[index], index, array);
+  shouldForward(smsData) {
+    this.cleanupDedupCache();
+    const key = this.getSmsDedupKey(smsData);
+    const now = Date.now();
+    if (this.dedupCache.has(key)) {
+      return false;
+    }
+    this.dedupCache.set(key, now + this.dedupCacheTtlMs);
+    return true;
+  }
+
+  cleanupDedupCache() {
+    const now = Date.now();
+    for (const [key, expiry] of this.dedupCache.entries()) {
+      if (expiry <= now) {
+        this.dedupCache.delete(key);
+      }
+    }
+  }
+
+  getSmsDedupKey(smsData) {
+    const payload = `${smsData.from}|${smsData.receivedTime}|${smsData.content}`;
+    return crypto.createHash('sha256').update(payload).digest('hex');
+  }
+
+  async markUnreadAsRead(unreadSms) {
+    await this.runWithConcurrency(unreadSms, this.markReadConcurrency, async (element) => {
+      await this.markOneAsRead(element, 0);
+    });
+  }
+
+  async markOneAsRead(element, attempt) {
+    try {
+      await axios.patch(this.url + "/api/v1/sms/inbox/" + element.order, null, this.axiosConfig);
+      logger.info("SMS marked as read", { order: element.order, from: element.from });
+    } catch(exception) {
+      logger.error("Error marking SMS as read. " + exception.message, { order: element.order, attempt: attempt + 1 });
+      this.enqueueMarkReadRetry(element, attempt + 1);
+    }
+  }
+
+  enqueueMarkReadRetry(element, attempt) {
+    if (attempt > this.maxMarkReadRetry) {
+      logger.error("Exceeded max retries for mark-as-read", { order: element.order, from: element.from });
+      return;
+    }
+
+    this.markReadRetryQueue.push({ element, attempt });
+    if (!this.markReadRetryTimer) {
+      this.markReadRetryTimer = setTimeout(() => {
+        this.markReadRetryTimer = null;
+        this.processMarkReadRetryQueue();
+      }, this.markReadRetryDelay);
+    }
+  }
+
+  async processMarkReadRetryQueue() {
+    if (this.markReadProcessing || this.markReadRetryQueue.length === 0) {
+      return;
+    }
+
+    this.markReadProcessing = true;
+    const batch = this.markReadRetryQueue.splice(0, this.markReadRetryQueue.length);
+    await this.runWithConcurrency(batch, this.markReadConcurrency, async ({ element, attempt }) => {
+      await this.markOneAsRead(element, attempt);
+    });
+    this.markReadProcessing = false;
+
+    if (this.markReadRetryQueue.length > 0 && !this.markReadRetryTimer) {
+      this.markReadRetryTimer = setTimeout(() => {
+        this.markReadRetryTimer = null;
+        this.processMarkReadRetryQueue();
+      }, this.markReadRetryDelay);
+    }
+  }
+
+  async runWithConcurrency(array, concurrency, callback) {
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < array.length) {
+        const currentIndex = cursor++;
+        await callback(array[currentIndex], currentIndex, array);
+      }
+    };
+    const workerCount = Math.min(concurrency, array.length);
+    const workers = Array.from({ length: workerCount }, () => worker());
+    await Promise.all(workers);
+  }
+
+  shutdown() {
+    if (this.markReadRetryTimer) {
+      clearTimeout(this.markReadRetryTimer);
+      this.markReadRetryTimer = null;
     }
   }
 }
