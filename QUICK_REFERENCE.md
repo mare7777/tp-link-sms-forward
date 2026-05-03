@@ -109,6 +109,22 @@ curl --user apiuser:password \
   -X POST http://127.0.0.1:3000/api/v1/sms/outbox
 ```
 
+
+## ⏱️ SMS 輪詢建議（即時性 vs Router 負載）
+
+`sms-cat.mjs` 可設定：
+
+- `api_client_polling_delay`：基礎輪詢間隔（ms）
+- `api_client_polling_jitter_ms`：jitter（每次額外 0~N ms）
+
+建議三檔：
+
+| 模式 | 設定 | 說明 |
+|------|------|------|
+| 高即時 | `1500` + `300` | 大約 1.5~1.8 秒，較即時，路由器請求較頻繁 |
+| 平衡 | `3000` + `500` | 大約 3.0~3.5 秒，推薦一般使用 |
+| 低負載 | `5000` + `1000` | 大約 5.0~6.0 秒，較省資源 |
+
 ## 📋 設定檔格式
 
 ### config.json 完整範例
@@ -126,7 +142,8 @@ curl --user apiuser:password \
   "api_client_url": "http://localhost:3000",
   "api_client_login": "apiuser",
   "api_client_password": "API密碼",
-  "api_client_polling_delay": 5000,
+  "api_client_polling_delay": 1500,
+  "api_client_polling_jitter_ms": 300,
   "sms_gateway_url": "http://localhost:3000",
   "sms_gateway_login": "apiuser",
   "sms_gateway_password": "API密碼",
