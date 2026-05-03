@@ -56,6 +56,8 @@ node api-bridge.mjs
 node sms-cat.mjs
 ```
 
+> `sms-cat.mjs` 預設使用「進階模式」：以 `unread=true&unseenOnly=true` 搭配本地游標（`state/sms-cursor.json`）續接輪詢。
+
 ---
 
 ## 功能矩陣
@@ -112,6 +114,23 @@ node sms-cat.mjs --config=./config.json | \
 估算端到端新增訊息偵測時間可用：
 
 `偵測時間 ≈ polling_delay + (jitter_ms / 2) + router 回應時間`
+
+---
+
+## `sms-cat.mjs` 進階模式（預設）與一致性限制
+
+`sms-cat.mjs` 目前預設為「進階模式」，行為如下：
+
+- 輪詢端點：`/api/v1/sms/inbox?unread=true&unseenOnly=true`
+- 有游標時會附加 `fingerprint=<lastFingerprint>`（或 `since=<ISO time>`）
+- 成功轉發後才更新 `state/sms-cursor.json`，確保程序重啟可續接
+- 若指紋游標失效（例如 router 已清掉該訊息），自動回退為 `unread=true` 全掃並靠 dedup 避免重送
+
+一致性限制（重要）：
+
+- 路由器收件匣 API 一次只保留/返回最近 8 則訊息
+- 若輪詢中斷過久、短時間湧入大量 SMS，可能發生最舊訊息被覆蓋而無法補抓
+- 建議縮短輪詢間隔，並讓下游系統保留自己的持久化事件紀錄
 
 ---
 
