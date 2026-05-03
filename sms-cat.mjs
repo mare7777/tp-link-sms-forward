@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 
 import crypto from 'crypto'
+import fs from 'fs'
 import path from 'path'
 import minimist from 'minimist'
 import logger from './src/logger.mjs'
 import { createAxiosWithRetry, createBasicAuthConfig } from './src/axiosConfig.mjs'
 import { ERROR_RETRY_DELAY, HTTP_STATUS } from './src/constants.mjs'
 import { loadConfig } from './src/config.mjs'
+import TelegramClient from './src/telegramClient.mjs'
 
 const axios = createAxiosWithRetry();
 let configFilePath = 'config.json';
@@ -46,6 +48,8 @@ class SmsPoller {
     this.dedupCache = new Map();
     this.cursorStatePath = path.resolve(config.cursorStatePath || 'state/sms-cursor.json');
     this.cursorState = this.loadCursorState();
+    this.telegramClient = new TelegramClient(config);
+    this.deliveryMode = config.deliveryMode || 'at_least_once';
   }
 
   loadCursorState() {
@@ -158,6 +162,7 @@ class SmsPoller {
   async processUnreadSms(unreadSms) {
     let lastProcessedFingerprint = null;
     let lastProcessedSince = null;
+    const shouldMarkReadList = [];
 
     for (const element of unreadSms) {
       const smsData = {
@@ -167,19 +172,49 @@ class SmsPoller {
       };
 
       if (this.shouldForward(smsData)) {
-        this.callback(smsData);
-        logger.info("SMS forwarded", { sms: smsData });
-        lastProcessedFingerprint = element.fingerprint || lastProcessedFingerprint;
-        lastProcessedSince = this.toIsoTime(element.receivedTime) || lastProcessedSince;
+        let deliverResult = { sent: false, skipped: true };
+        try {
+          this.callback(smsData);
+          deliverResult = await this.telegramClient.sendSmsNotification(smsData, {
+            order: element.order,
+          });
+        } catch (exception) {
+          logger.error('SMS callback/telegram flow failed: ' + exception.message, {
+            order: element.order,
+            from: element.from,
+          });
+          deliverResult = { sent: false, skipped: false, error: exception };
+        }
+
+        const treatAsSuccess = deliverResult.sent || deliverResult.skipped;
+        const shouldMarkRead = this.deliveryMode === 'at_most_once' ? true : treatAsSuccess;
+
+        if (shouldMarkRead) {
+          shouldMarkReadList.push(element);
+          lastProcessedFingerprint = element.fingerprint || lastProcessedFingerprint;
+          lastProcessedSince = this.toIsoTime(element.receivedTime) || lastProcessedSince;
+          logger.info('SMS processed', {
+            order: element.order,
+            mode: this.deliveryMode,
+            telegramSent: Boolean(deliverResult.sent),
+            telegramSkipped: Boolean(deliverResult.skipped),
+          });
+        } else {
+          logger.notice('SMS kept unread for next polling due to Telegram delivery failure', {
+            order: element.order,
+            from: element.from,
+          });
+        }
       } else {
-        logger.notice('SMS kept unread for next polling due to Telegram delivery failure', {
+        shouldMarkReadList.push(element);
+        logger.notice('Duplicate SMS skipped by dedup cache', {
           order: element.order,
           from: element.from,
         });
       }
     }
 
-    await this.markUnreadAsRead(unreadSms);
+    await this.markUnreadAsRead(shouldMarkReadList);
 
     if (lastProcessedFingerprint || lastProcessedSince) {
       this.cursorState = {
