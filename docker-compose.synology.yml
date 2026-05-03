@@ -1,0 +1,53 @@
+version: "3.9"
+
+x-common-env: &common-env
+  NODE_ENV: production
+  CONFIG__URL: ${CONFIG__URL:-http://192.168.1.1}
+  CONFIG__LOGIN: ${CONFIG__LOGIN:-admin}
+  CONFIG__PASSWORD: ${CONFIG__PASSWORD:-myrouterpassword}
+  CONFIG__API_LISTEN_HOST: ${CONFIG__API_LISTEN_HOST:-0.0.0.0}
+  CONFIG__API_LISTEN_PORT: ${CONFIG__API_LISTEN_PORT:-3000}
+  CONFIG__API_USERS__APIUSER: ${CONFIG__API_USERS__APIUSER:-pleasechangeme}
+  CONFIG__API_CLIENT_URL: ${CONFIG__API_CLIENT_URL:-http://api-bridge:3000}
+  CONFIG__API_CLIENT_LOGIN: ${CONFIG__API_CLIENT_LOGIN:-apiuser}
+  CONFIG__API_CLIENT_PASSWORD: ${CONFIG__API_CLIENT_PASSWORD:-pleasechangeme}
+  CONFIG__API_CLIENT_POLLING_DELAY: ${CONFIG__API_CLIENT_POLLING_DELAY:-3000}
+  CONFIG__API_CLIENT_POLLING_JITTER_MS: ${CONFIG__API_CLIENT_POLLING_JITTER_MS:-500}
+
+x-common-service: &common-service
+  build: .
+  image: tp-link-sms-forward:latest
+  init: true
+  restart: unless-stopped
+  volumes:
+    - ./config.json:/home/node/tp-link-modem-router-master/config.json:ro
+  environment:
+    <<: *common-env
+  networks:
+    - tp-link-sms-network
+
+services:
+  api-bridge:
+    <<: *common-service
+    container_name: tp-link-api-bridge
+    command: ["node", "./api-bridge.mjs"]
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider --user=${CONFIG__API_CLIENT_LOGIN:-apiuser} --password=${CONFIG__API_CLIENT_PASSWORD:-pleasechangeme} http://127.0.0.1:3000/api/v1/monitoring/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  sms-cat:
+    <<: *common-service
+    container_name: tp-link-sms-cat
+    command: ["node", "./sms-cat.mjs"]
+    depends_on:
+      api-bridge:
+        condition: service_healthy
+
+networks:
+  tp-link-sms-network:
+    driver: bridge

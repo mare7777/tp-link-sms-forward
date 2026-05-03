@@ -132,3 +132,67 @@ node sms-cat.mjs --config=./config.json | \
 | `api_users` | API Basic Auth 使用者清單 |
 | `api_client_url` / `api_client_login` / `api_client_password` | `sms-cat.mjs` 連線 API 設定 |
 | `api_client_polling_delay` / `api_client_polling_jitter_ms` | SMS 輪詢週期與抖動 |
+
+---
+
+## Synology NAS（Container Manager）部署指南
+
+### 1) 建立專案與檔案
+
+1. 在 NAS 建立資料夾（例如 `/volume1/docker/tp-link-sms-forward`）。
+2. 放入以下檔案：
+   - `docker-compose.synology.yml`
+   - `config.json`（可先由 `config.example.json` 複製）
+3. 到 Container Manager → **Project** → **Create**，選擇該資料夾與 compose 檔。
+
+### 2) Volume 掛載路徑
+
+本專案預設掛載：
+
+- 主機：`/volume1/docker/tp-link-sms-forward/config.json`
+- 容器：`/home/node/tp-link-modem-router-master/config.json`（唯讀）
+
+> 若你偏好完全用 UI 填環境變數，也可保留最小 `config.json`，並以 `CONFIG_JSON` 或 `CONFIG__...` 覆寫。
+
+### 3) Port 映射
+
+- `api-bridge`: `3000:3000`
+- `sms-cat`: 不需對外開放埠（透過內部網路連 `api-bridge`）
+
+### 4) 參數對照（Synology UI 環境變數）
+
+可直接在 Container Manager 的 Environment 區設定：
+
+- Router login
+  - `CONFIG__URL`
+  - `CONFIG__LOGIN`
+  - `CONFIG__PASSWORD`
+- API users（Basic Auth）
+  - `CONFIG__API_USERS__APIUSER`（例如 `apiuser` 的密碼）
+- Telegram（若你在外部腳本轉送）
+  - 建議自訂 `TG_BOT_TOKEN`、`TG_CHAT_ID`（供你的轉送腳本使用）
+
+另外支援兩種覆寫方式：
+
+1. `CONFIG_JSON`：整包 JSON 字串（會與檔案設定合併）
+2. `CONFIG__...`：逐項覆寫（例如 `CONFIG__API_CLIENT_POLLING_DELAY=3000`）
+
+### 5) 服務說明（雙服務）
+
+- `api-bridge`：提供 REST API（含 `/api/v1/monitoring/health` 健康檢查）
+- `sms-cat`：輪詢 API 收件匣並輸出/轉送 SMS
+
+兩者共用同一份設定與同一個 Docker network，並啟用 `restart: unless-stopped`。
+
+### 6) DS1502+ / DS1522+ 資源建議
+
+- CPU / RAM
+  - `api-bridge`: 0.2~0.5 vCPU、128~256MB RAM
+  - `sms-cat`: 0.1~0.3 vCPU、64~128MB RAM
+  - 建議專案總預留：`0.5~1 vCPU`、`256~512MB RAM`
+- Log rotation
+  - 建議啟用 Docker log rotation（例如 `max-size=10m`, `max-file=3`）避免長期膨脹
+- 資料保留策略
+  - `config.json` 納入 NAS 備份（Hyper Backup）
+  - 容器 log 保留 7~30 天
+  - 若有外部轉送紀錄（Webhook/DB），建議保留 90 天以上以利追查

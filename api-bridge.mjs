@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import fs from 'fs'
 import minimist from 'minimist'
 import express from 'express'
 import nocache from 'nocache'
@@ -12,6 +11,7 @@ import rateLimit from 'express-rate-limit'
 import RouterClient from './src/routerClient.mjs'
 import logger from './src/logger.mjs'
 import { validateConfig } from './src/validation.mjs'
+import { loadConfig } from './src/config.mjs'
 
 let configFilePath = './config.json';
 
@@ -25,10 +25,9 @@ if (typeof argv['config'] !== 'undefined') {
 let config = {};
 
 try {
-  const rawConfig = fs.readFileSync(configFilePath);
-  config = JSON.parse(rawConfig);
+  config = loadConfig(configFilePath);
 } catch(exception) {
-  logger.error('Config file ' + configFilePath + ' could not be read, exiting');
+  logger.error(exception.message + ', exiting');
   process.exit(1);
 }
 
