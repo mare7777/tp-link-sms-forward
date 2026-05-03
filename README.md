@@ -1,278 +1,188 @@
-# Goodies for Archer LTE routers
+# TP-Link SMS Forward 單一入口指南
 
-## Features
+本文件是專案的「主入口」，聚焦在 **3 分鐘可上線**、**Telegram 轉送整合**、與 **即時性調校**。  
+進階細節已拆分到：
 
-### Implemented
+- 架構與模組設計：[`ARCHITECTURE.md`](./ARCHITECTURE.md)
+- 功能全覽與情境：[`FEATURES.md`](./FEATURES.md)
+- 測試方法：[`TESTING.md`](./TESTING.md)
+- 操作速查：[`QUICK_REFERENCE.md`](./QUICK_REFERENCE.md)
+- 專案總覽：[`PROJECT_OVERVIEW.md`](./PROJECT_OVERVIEW.md)
 
-* Easy to use script to send SMS
-* Easy to use script to receive SMS
-* REST API bridge for managing and sending SMS
-* SMTP to SMS gateway
+---
 
-## Quick Start
+## 專案目的
 
-### 1. Install Dependencies
+這個專案讓你把 TP-Link Archer LTE 路由器的 SMS 功能程式化，提供三種核心能力：
 
-You need `nodejs` (>= 14.x) and `npm` or `yarn`.
+1. 直接送 SMS（`sms-send.mjs`）
+2. 暴露本機 REST API（`api-bridge.mjs`）
+3. 持續拉取收件匣新簡訊（`sms-cat.mjs`）作為轉送管線入口
+
+推薦把 `sms-cat.mjs` 視為「事件來源」，再串接你自己的通知端（例如 Telegram Bot）。
+
+---
+
+## 3 分鐘快速啟動
+
+### 1) 安裝
 
 ```bash
-# Install dependencies
 npm install
-# or
-yarn install
+# 或
+# yarn install
 ```
 
-### 2. Create Configuration
+### 2) 建立設定檔
 
 ```bash
-# Copy example config
 cp config.example.json config.json
-
-# Edit config.json and fill in your router details
-# - url: Your router IP (usually http://192.168.1.1)
-# - login: Router admin username (usually "admin")
-# - password: Your router password
-# - api_users: Change "pleasechangeme" to a strong password
 ```
 
-### 3. Test Your Setup
+至少先填妥：
+
+- `url`：路由器位址（通常 `http://192.168.1.1`）
+- `login` / `password`：路由器管理帳密
+- `api_users`：API Basic Auth 帳密（務必改掉預設值）
+
+### 3) 啟動 API Bridge
 
 ```bash
-# Run environment check
-node test-setup.mjs
-
-# Test sending SMS
-node sms-send.mjs "0912345678" "Test message"
-```
-
-### 4. Start API Bridge
-
-```bash
-# Start the API server
 node api-bridge.mjs
-
-# Open in browser: http://127.0.0.1:3000
 ```
 
-For detailed testing instructions, see [TESTING.md](TESTING.md).
+預設服務位址：`http://127.0.0.1:3000`
 
-## Usage
-
-### Security Warnings ⚠️
-
-**IMPORTANT**: This tool handles sensitive communications and credentials. Please follow these security best practices:
-
-* **DO NOT expose the API bridge to the public internet** - Keep it on your local network only
-* **Use strong passwords** - Change the default passwords in config.json immediately
-* **Protect your config file** - config.json contains sensitive credentials, ensure proper file permissions (e.g., `chmod 600 config.json` on Linux/Mac)
-* **Use HTTPS/TLS** - If you must access the API remotely, place it behind a reverse proxy with HTTPS (e.g., nginx, Caddy)
-* **Enable authentication** - Always use the `api_users` configuration with strong, unique passwords
-* **Network security** - The router validates that requests come from the same network. Do not bypass this security feature
-* **Monitor access** - Regularly check logs for unauthorized access attempts
-* **Keep dependencies updated** - Run `npm audit` regularly and update packages with `npm audit fix`
-
-### Limitations and warnings
-
-* Bridge API is subject to change without warnings.
-* Special characters work but careful how you escape them in your shell command.
-* Script and API must be in the same network of the router (IP is verified by the router's backend).
-* You should avoid connecting to the router web UI while using these tools because it might cause unexpected behaviors.
-* Time and timezone must be configured on router for accurate received SMS times.
-* `/api/v1/sms/inbox` responses include stable `fingerprint` and normalized `receivedTimeIso` fields for incremental polling and comparison.
-* This implementation uses the router's proprietary encryption protocol. While efforts have been made to ensure security, use at your own risk.
-
-### Send SMS command
+### 4) 啟動 SMS 輪詢
 
 ```bash
-# example passing all arguments as command line args
-./sms-send.mjs --url="http://192.168.1.1" --login="admin" --password="myrouterpassword" "0612345678" "my text message"
+node sms-cat.mjs
+```
 
-# returns 0 on success, 1 on error
-# pipe output to /dev/null if you do not want debug output
+收到新簡訊時，會輸出結構化日誌（含 `sms.from`、`sms.content`、`sms.receivedTime`）。
 
-# you can also hardcode the credentials in the file or in the default config file : config.json
-./sms-send.mjs 0612345678 "my text message"
+---
 
-# it is possible to supply your own config file using the --config arg
-./sms-send.mjs --config="/tmp/config.json" 0612345678 "my text message"
+## Telegram 轉送整合範例（以 `sms-cat.mjs` 為核心）
 
-# sample config file (config.json) for sms-send.mjs
+下面示範最小可用流程：
+
+1. `sms-cat.mjs` 輪詢 `/api/v1/sms/inbox`。
+2. 偵測未讀簡訊後，標示已讀並輸出 JSON log。
+3. 由你的轉送腳本讀取輸出，呼叫 Telegram Bot API。
+
+### 範例管線
+
+```bash
+node sms-cat.mjs --config=./config.json | \
+  jq -rc 'select(.message=="Received SMS") | .sms' | \
+  while read -r sms; do
+    from=$(echo "$sms" | jq -r '.from')
+    content=$(echo "$sms" | jq -r '.content')
+    text="[Router SMS]\nFrom: ${from}\n${content}"
+
+    curl -sS -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
+      -d chat_id="${TG_CHAT_ID}" \
+      --data-urlencode text="$text" >/dev/null
+  done
+```
+
+> 建議：先在 shell 設定 `TG_BOT_TOKEN` 與 `TG_CHAT_ID`，避免把機密寫入版本庫。
+
+---
+
+## 即時性調校（polling、retry、router 負載）
+
+`sms-cat.mjs` 目前採 **輪詢模型**：每次抓收件匣、處理未讀、等待下一輪。即時性主要由 `api_client_polling_delay` 決定。
+
+- **polling 間隔（`api_client_polling_delay`）**
+  - 越小：越快收到通知、但對路由器與 API 負載越高。
+  - 越大：較省資源、但通知延遲增加。
+- **retry 行為（網路錯誤）**
+  - 遇到連線錯誤會等待固定重試延遲後再試。
+  - 遇到 502 會重連輪詢。
+- **router 負載**
+  - 同時開啟路由器 Web UI、第三方腳本、與高頻輪詢，常導致回應變慢或短暫異常。
+  - 建議把此工具與人工 Web 管理操作時段錯開。
+
+---
+
+## 常見延遲原因與排查清單
+
+1. **輪詢間隔過大**：先確認 `api_client_polling_delay`。
+2. **路由器忙碌**：檢查是否同時有人在操作 Web UI。
+3. **網路品質不穩**：觀察 `sms-cat.mjs` 是否頻繁出現重試錯誤。
+4. **API Bridge 壓力高**：確認是否有其他服務頻繁讀取 `/api/v1/sms/inbox`。
+5. **單機資源瓶頸**：若轉送腳本含外部 API 呼叫，避免在同一個同步迴圈中阻塞太久。
+
+建議排查順序：
+
+- Step 1：把 `api_client_polling_delay` 臨時調小測試（例如從 5000 改到 2000）。
+- Step 2：停止其他管理流量（Web UI / 額外監控腳本）。
+- Step 3：只保留 `api-bridge.mjs + sms-cat.mjs` 最小組合重測。
+
+---
+
+## 設定欄位名稱統一與程式碼對應
+
+下表僅列最常用且與 SMS 轉送直接相關欄位，命名以 `config.example.json` 為準。
+
+| 設定欄位 | 用途 | 主要使用位置 |
+|---|---|---|
+| `url` | 路由器 API 基底位址 | `api-bridge.mjs`, `sms-send.mjs` |
+| `login` | 路由器帳號 | `api-bridge.mjs`, `sms-send.mjs` |
+| `password` | 路由器密碼 | `api-bridge.mjs`, `sms-send.mjs` |
+| `api_listen_host` | API Bridge 監聽位址 | `api-bridge.mjs` |
+| `api_listen_port` | API Bridge 監聽埠 | `api-bridge.mjs` |
+| `api_users` | API Basic Auth 使用者清單 | `api-bridge.mjs` |
+| `api_client_url` | `sms-cat.mjs` 要連的 API Bridge 位址 | `sms-cat.mjs` |
+| `api_client_login` | `sms-cat.mjs` API 使用者 | `sms-cat.mjs` |
+| `api_client_password` | `sms-cat.mjs` API 密碼 | `sms-cat.mjs` |
+| `api_client_polling_delay` | `sms-cat.mjs` 輪詢週期（毫秒） | `sms-cat.mjs` |
+
+---
+
+## 建議預設值（三種模板）
+
+> 以下為建議起點，請依你的路由器與網路狀況微調。
+
+### A. 家用網路（平衡）
+
+```json
 {
-    "url": "http://192.168.1.1",
-    "login": "admin",
-    "password": "myrouterpassword"
+  "api_client_polling_delay": 5000
 }
-
 ```
 
-### REST API Bridge
+- 適合一般日常通知。
+- 平衡即時性與設備負載。
 
-```bash
-# Start API bridge, using local config.json
-./api-bridge.mjs
+### B. 告警用途（較即時）
 
-# Using custom config.json file
-./api-bridge.mjs --config=/tmp/config.json
-
-# Sample config.json file
+```json
 {
-    "url": "http://192.168.1.1",
-    "login": "admin",
-    "password": "myrouterpassword",
-    "api_listen_host": "127.0.0.1",
-    "api_listen_port": 3000,
-    "api_users": { "apiuser": "pleasechangeme" }
+  "api_client_polling_delay": 2000
 }
-
-# Explore API on http://127.0.0.1:3000
-
-# Sample queries
-# ==============
-# List received SMS
-curl --user apiuser:pleasechangeme -X GET "http://127.0.0.1:3000/api/v1/sms/inbox" -H  "accept: application/json"
-
-# List unread SMS received after a given timestamp (ISO-8601 UTC)
-curl --user apiuser:pleasechangeme -X GET "http://127.0.0.1:3000/api/v1/sms/inbox?unread=true&since=2026-01-01T00:00:00Z" -H "accept: application/json"
-
-# Poll incrementally from the last known fingerprint
-curl --user apiuser:pleasechangeme -X GET "http://127.0.0.1:3000/api/v1/sms/inbox?fingerprint=35%7C%2B33123456789%7CTest%20content%7C2020-07-16%2023:04:16" -H "accept: application/json"
-
-# Return only unseen messages from bridge cache
-curl --user apiuser:pleasechangeme -X GET "http://127.0.0.1:3000/api/v1/sms/inbox?unseenOnly=true" -H "accept: application/json"
-
-# Sending SMS application/x-www-form-urlencoded style
-curl --user apiuser:pleasechangeme -d to=0123456789 -d content=test1 -X POST "http://127.0.0.1:3000/api/v1/sms/outbox" -H  "accept: application/json"
-
-# Sending SMS application/json style
-curl --user apiuser:pleasechangeme -d '{"to":"0123456789", "content":"test2"}' -H 'Content-Type: application/json' -X POST "http://127.0.0.1:3000/api/v1/sms/outbox" -H  "accept: application/json"
 ```
 
-### Receive SMS with SMS cat
+- 適合停電、設備離線、門禁觸發等通知。
+- 需留意路由器 CPU 與 API 回應時間。
 
+### C. 高即時用途（高頻）
 
-### SMS 輪詢頻率建議（即時性 vs Router 負載）
-
-`sms-cat.mjs` 支援「基礎輪詢 + jitter」設定：
-
-- `api_client_polling_delay`: 基礎輪詢間隔（毫秒）
-- `api_client_polling_jitter_ms`: 每次輪詢額外隨機延遲（0 ~ N 毫秒）
-
-建議檔位：
-
-- **高即時**：`1500` + `300`（約 1.5~1.8 秒）
-- **平衡**：`3000` + `500`（約 3.0~3.5 秒）
-- **低負載**：`5000` + `1000`（約 5.0~6.0 秒）
-
-> 建議先從平衡檔開始，再依實際漏訊風險與路由器負載調整。
-
-
-```bash
-# Example piping new SMS to command to your own command process_incoming_sms
-./sms-cat.mjs --config=/tmp/config.json | \
-    jq -c 'select(.message|contains("Received SMS")) | .sms' | \
-    jq -c --raw-output 'select(.from=="+33123456789") .content' | \
-    while read smsContent; do ./process_incoming_sms "$smsContent"; done
-
-# Sample config file for sms-cat.mjs
+```json
 {
-    "api_client_url": "http://localhost:3000",
-    "api_client_login": "apiuser",
-    "api_client_password": "pleasechangeme",
-    "api_client_polling_delay": 1500,
-    "api_client_polling_jitter_ms": 300
+  "api_client_polling_delay": 1000
 }
 ```
 
-### SMTP to SMS Gateway
+- 僅建議在路由器負載可控、網路穩定時使用。
+- 如出現 502 / retry 增加，請回退到 2000 或 3000。
 
-```bash
-# Start listening for emails
-./smtp-gateway.mjs --config=/tmp/config.json
+---
 
-# Sample config file for smtp-gateway.mjs
-{
-    "sms_gateway_url": "http://localhost:3000",
-    "sms_gateway_login": "apiuser",
-    "sms_gateway_password": "pleasechangeme",
-    "sms_gateway_domain": "smtp2sms.local",
-    "sms_gateway_listen_host": "127.0.0.1",
-    "sms_gateway_listen_port": 1025
-}
-```
+## 延伸閱讀（避免 README 重複）
 
-```bash
-# SMTP Example
-curl -vv smtp://127.0.0.1:1025 --mail-rcpt 123456789@smtp2sms.local --upload-file <(echo && echo -n "Hello world from curl")
-```
-
-```
-*   Trying 127.0.0.1:1025...
-  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
-                                 Dload  Upload   Total   Spent    Left  Speed
-  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0* Connected to 127.0.0.1 (127.0.0.1) port 1025 (#0)
-< 220 dom0 ESMTP SMTP gateway for SMS API
-> EHLO 11
-< 250-dom0 Nice to meet you, [127.0.0.1]
-< 250-PIPELINING
-< 250-8BITMIME
-< 250-SMTPUTF8
-< 250-AUTH LOGIN PLAIN
-< 250 STARTTLS
-> MAIL FROM:<>
-< 250 Accepted
-> RCPT TO:<123456789@smtp2sms.local>
-< 250 Accepted
-> DATA
-< 354 End data with <CR><LF>.<CR><LF>
-} [26 bytes data]
-< 250 OK: message queued
-100    26    0     0    0    26      0     49 --:--:-- --:--:-- --:--:--    49
-* Connection #0 to host 127.0.0.1 left intact
-```
-
-## Supported models
-
-* TP-Link Archer MR200 v5
-    * Firmware Version : ‪1.2.0 0.9.1 v0001.0 Build 210120 Rel.67320n
-* TP-Link Archer MR600
-* TP-Link TL-MR6400 v5
-    * Firmware Version : 1.1.0 0.9.1 v0001.0 Build 200511 Rel.43036n
-
-## Common errors
-
-HTTP 403 while sending SMS or using API bridge
-: You might want to double-check that the password supplied is correct and that you call the script from the same network/subnet as the router.
-
-## Development and debugging the router's protocol
-
-To debug the interaction between your browser and the router, first log in on the router UI and then paste this code in the developer console of your browser.
-All traffic will be logged in plain text in the console.
-
-```javascript
-$.Iencryptor.AESDecrypt_backup = $.Iencryptor.AESDecrypt;
-$.Iencryptor.AESEncrypt_backup = $.Iencryptor.AESEncrypt;
-$.Iencryptor.AESDecrypt = function(data) {
-	let decrypted = $.Iencryptor.AESDecrypt_backup(data);
-	console.log("RECV:\n" + decrypted);
-	return decrypted;
-}
-$.Iencryptor.AESEncrypt = function(data) {
-	console.log("SEND:\n" + data);
-	return $.Iencryptor.AESEncrypt_backup(data);
-}
-```
-
-### Alternatives and projects of interest
-
-I can offer no guarantees about the following projects
-
-* https://github.com/hercule115/TPLink-Archer
-  * Python command line tool to dump MR600 router config and update dynamic DNS
-* https://github.com/jeedom/plugin-tplinksms
-  * Plugin for Jeedom that provides an UI
-* https://github.com/mehmetbeyHZ/tp-link-m7200-api
-  * PHP library for TP-Link M7000 range of products
-* https://github.com/McMlok/DomoticzToRouterSmsBot
-* https://github.com/jonscheiding/tplink-vpn-ddns
-
+- 系統內部流程與模組拆解：[`ARCHITECTURE.md`](./ARCHITECTURE.md)
+- 功能矩陣與使用情境：[`FEATURES.md`](./FEATURES.md)
 
