@@ -132,3 +132,27 @@ node sms-cat.mjs --config=./config.json | \
 | `api_users` | API Basic Auth 使用者清單 |
 | `api_client_url` / `api_client_login` / `api_client_password` | `sms-cat.mjs` 連線 API 設定 |
 | `api_client_polling_delay` / `api_client_polling_jitter_ms` | SMS 輪詢週期與抖動 |
+
+## 內建 Telegram 轉送（`sms-cat.mjs`）
+
+`sms-cat.mjs` 現在可直接呼叫 Telegram Bot API：
+`https://api.telegram.org/bot<TOKEN>/sendMessage`。
+
+### 設定欄位
+
+- `telegram_enabled`：是否啟用 Telegram 轉送（`true/false`）
+- `telegram_bot_token`：Bot Token
+- `telegram_chat_id`：目標 chat id
+- `sms_delivery_mode`：`at_least_once`（預設）或 `at_most_once`
+  - `at_least_once`：Telegram 送成功才標記已讀；失敗則保留未讀，避免遺失
+  - `at_most_once`：無論 Telegram 成敗都可標記已讀
+- `telegram_max_retries` / `telegram_retry_initial_backoff_ms` / `telegram_retry_max_backoff_ms`：指數退避重試參數
+- `telegram_timeout_ms`：單次 Telegram API 超時
+
+### 啟動
+
+```bash
+node sms-cat.mjs --config=./config.json
+```
+
+Log 會包含 `order` 與部分遮罩的 `from` 以利追蹤，不會過度曝光敏感內容。
