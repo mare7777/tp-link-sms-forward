@@ -10,4 +10,4 @@ RUN yarn install
 FROM node:lts-alpine
 WORKDIR /home/node/tp-link-modem-router-master
 COPY --from=0 /home/node/tp-link-modem-router-master .
-CMD ["node", "./api-bridge.js"]
+CMD ["node", "./api-bridge.mjs"]

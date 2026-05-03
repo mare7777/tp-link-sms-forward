@@ -179,6 +179,8 @@
 
 import express from 'express';
 import { TP_ACT, TP_CONTROLLERS } from '../routerProtocol.mjs'
+import { isValidPhoneNumber, validateSmsContent, sanitizeError } from '../validation.mjs'
+import { ROUTER_INDEX_DEFAULT, ROUTER_STACK_DEFAULT } from '../constants.mjs'
 
 const router = express.Router();
 
@@ -229,7 +231,8 @@ router.get('/inbox', async function (req, res) {
       res.json({status: 200, data: response.data});
     })
     .catch((exception) => {
-      res.status(500).json({status: 500, exception: {name: exception.name, message: exception.message}});
+      const sanitized = sanitizeError(exception);
+      res.status(500).json({status: 500, error: sanitized.message});
     });
 });
 
@@ -250,7 +253,8 @@ router.patch('/inbox/:smsOrderNumber(\\d+)', async function (req, res) {
       res.json({status: 200, data: response.data});
     })
     .catch((exception) => {
-      res.status(500).json({status: 500, exception: {name: exception.name, message: exception.message}});
+      const sanitized = sanitizeError(exception);
+      res.status(500).json({status: 500, error: sanitized.message});
     });
 });
 
@@ -270,7 +274,8 @@ router.delete('/inbox/:smsOrderNumber(\\d+)', async function (req, res) {
       res.json({status: 200, data: response.data});
     })
     .catch((exception) => {
-      res.status(500).json({status: 500, exception: {name: exception.name, message: exception.message}});
+      const sanitized = sanitizeError(exception);
+      res.status(500).json({status: 500, error: sanitized.message});
     });
 });
 
@@ -282,27 +287,42 @@ router.get('/outbox', async function (req, res) {
       res.json({status: 200, data: response.data});
     })
     .catch((exception) => {
-      res.status(500).json({status: 500, exception: {name: exception.name, message: exception.message}});
+      const sanitized = sanitizeError(exception);
+      res.status(500).json({status: 500, error: sanitized.message});
     });
 });
 
 router.post('/outbox', async function (req, res) {
   if (typeof req.body.to == 'undefined' || typeof req.body.content == 'undefined') {
-    res.status(400).json({status: 400});
+    res.status(400).json({status: 400, error: 'Missing required fields: to and content'});
     return;
   }
 
   const to = req.body.to;
   const content = req.body.content;
+
+  // Validate phone number
+  if (!isValidPhoneNumber(to)) {
+    res.status(400).json({status: 400, error: 'Invalid phone number format'});
+    return;
+  }
+
+  // Validate SMS content
+  const contentValidation = validateSmsContent(content);
+  if (!contentValidation.valid) {
+    res.status(400).json({status: 400, error: contentValidation.error});
+    return;
+  }
+
   const client = req.app.get('router_client');
 
   const payloadSendSms = {
     method: TP_ACT.ACT_SET,
     controller: TP_CONTROLLERS.LTE_SMS_SENDNEWMSG,
     attrs: {
-      'index': 1,
+      'index': ROUTER_INDEX_DEFAULT,
       'to': to,
-      'textContent': content,
+      'textContent': content.trim(),
     }
   };
 
@@ -311,7 +331,8 @@ router.post('/outbox', async function (req, res) {
       res.json({status: 200, data: response.data});
     })
     .catch((exception) => {
-      res.status(500).json({status: 500, exception: {name: exception.name, message: exception.message}});
+      const sanitized = sanitizeError(exception);
+      res.status(500).json({status: 500, error: sanitized.message});
     });
 });
 
@@ -331,7 +352,8 @@ router.delete('/outbox/:smsOrderNumber(\\d+)', async function (req, res) {
       res.json({status: 200, data: response.data});
     })
     .catch((exception) => {
-      res.status(500).json({status: 500, exception: {name: exception.name, message: exception.message}});
+      const sanitized = sanitizeError(exception);
+      res.status(500).json({status: 500, error: sanitized.message});
     });
 });
 

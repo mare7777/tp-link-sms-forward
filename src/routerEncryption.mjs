@@ -145,6 +145,9 @@ class Encryption {
   constructor() {
     this.aes = new AES();
     this.rsa = new RSA();
+    this.hash = '';  // Initialize hash to prevent undefined reference
+    this.seq = 0;
+    this.aesKeyString = '';
   }
   setSeq(seq) {
     this.seq = parseInt(seq);
@@ -184,4 +187,4 @@ class Encryption {
   }
 }
 
-export default new Encryption();
+export default Encryption;

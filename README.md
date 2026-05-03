@@ -9,16 +9,67 @@
 * REST API bridge for managing and sending SMS
 * SMTP to SMS gateway
 
-## Installation and requirements
+## Quick Start
 
-You need `nodejs` and `yarn`. Install them first.
+### 1. Install Dependencies
+
+You need `nodejs` (>= 14.x) and `npm` or `yarn`.
 
 ```bash
-# clone this repository and execute to install required dependencies
+# Install dependencies
+npm install
+# or
 yarn install
-``` 
+```
+
+### 2. Create Configuration
+
+```bash
+# Copy example config
+cp config.example.json config.json
+
+# Edit config.json and fill in your router details
+# - url: Your router IP (usually http://192.168.1.1)
+# - login: Router admin username (usually "admin")
+# - password: Your router password
+# - api_users: Change "pleasechangeme" to a strong password
+```
+
+### 3. Test Your Setup
+
+```bash
+# Run environment check
+node test-setup.mjs
+
+# Test sending SMS
+node sms-send.mjs "0912345678" "Test message"
+```
+
+### 4. Start API Bridge
+
+```bash
+# Start the API server
+node api-bridge.mjs
+
+# Open in browser: http://127.0.0.1:3000
+```
+
+For detailed testing instructions, see [TESTING.md](TESTING.md).
 
 ## Usage
+
+### Security Warnings ⚠️
+
+**IMPORTANT**: This tool handles sensitive communications and credentials. Please follow these security best practices:
+
+* **DO NOT expose the API bridge to the public internet** - Keep it on your local network only
+* **Use strong passwords** - Change the default passwords in config.json immediately
+* **Protect your config file** - config.json contains sensitive credentials, ensure proper file permissions (e.g., `chmod 600 config.json` on Linux/Mac)
+* **Use HTTPS/TLS** - If you must access the API remotely, place it behind a reverse proxy with HTTPS (e.g., nginx, Caddy)
+* **Enable authentication** - Always use the `api_users` configuration with strong, unique passwords
+* **Network security** - The router validates that requests come from the same network. Do not bypass this security feature
+* **Monitor access** - Regularly check logs for unauthorized access attempts
+* **Keep dependencies updated** - Run `npm audit` regularly and update packages with `npm audit fix`
 
 ### Limitations and warnings
 
@@ -27,23 +78,24 @@ yarn install
 * Script and API must be in the same network of the router (IP is verified by the router's backend).
 * You should avoid connecting to the router web UI while using these tools because it might cause unexpected behaviors.
 * Time and timezone must be configured on router for accurate received SMS times.
+* This implementation uses the router's proprietary encryption protocol. While efforts have been made to ensure security, use at your own risk.
 
 ### Send SMS command
 
 ```bash
 # example passing all arguments as command line args
-./sms-send.js --url="http://192.168.1.1" --login="admin" --password="myrouterpassword" "0612345678" "my text message"
+./sms-send.mjs --url="http://192.168.1.1" --login="admin" --password="myrouterpassword" "0612345678" "my text message"
 
 # returns 0 on success, 1 on error
 # pipe output to /dev/null if you do not want debug output
 
 # you can also hardcode the credentials in the file or in the default config file : config.json
-./sms-send.js 0612345678 "my text message"
+./sms-send.mjs 0612345678 "my text message"
 
 # it is possible to supply your own config file using the --config arg
-./sms-send.js --config="/tmp/config.json" 0612345678 "my text message"
+./sms-send.mjs --config="/tmp/config.json" 0612345678 "my text message"
 
-# sample config file (config.json) for sms-send.js
+# sample config file (config.json) for sms-send.mjs
 {
     "url": "http://192.168.1.1",
     "login": "admin",
@@ -56,10 +108,10 @@ yarn install
 
 ```bash
 # Start API bridge, using local config.json
-./api-bridge.js
+./api-bridge.mjs
 
 # Using custom config.json file
-./api-bridge.js --config=/tmp/config.json
+./api-bridge.mjs --config=/tmp/config.json
 
 # Sample config.json file
 {
@@ -89,12 +141,12 @@ curl --user apiuser:pleasechangeme -d '{"to":"0123456789", "content":"test2"}' -
 
 ```bash
 # Example piping new SMS to command to your own command process_incoming_sms
-./sms-cat.js --config=/tmp/config.json | \
+./sms-cat.mjs --config=/tmp/config.json | \
     jq -c 'select(.message|contains("Received SMS")) | .sms' | \
     jq -c --raw-output 'select(.from=="+33123456789") .content' | \
     while read smsContent; do ./process_incoming_sms "$smsContent"; done
 
-# Sample config file for sms-cat.js
+# Sample config file for sms-cat.mjs
 {
     "api_client_url": "http://localhost:3000",
     "api_client_login": "apiuser",
@@ -107,9 +159,9 @@ curl --user apiuser:pleasechangeme -d '{"to":"0123456789", "content":"test2"}' -
 
 ```bash
 # Start listening for emails
-./smtp-gateway.js --config=/tmp/config.json
+./smtp-gateway.mjs --config=/tmp/config.json
 
-# Sample config file for smtp-gateway.js
+# Sample config file for smtp-gateway.mjs
 {
     "sms_gateway_url": "http://localhost:3000",
     "sms_gateway_login": "apiuser",

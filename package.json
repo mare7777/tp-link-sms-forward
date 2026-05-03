@@ -1,17 +1,30 @@
 {
   "type": "module",
   "dependencies": {
-    "axios": "^0.21.1",
-    "axios-retry": "^3.1.8",
-    "express": "^4.17.1",
-    "express-basic-auth": "^1.2.0",
+    "axios": "^1.7.9",
+    "axios-retry": "^4.5.0",
+    "express": "^4.21.2",
+    "express-basic-auth": "^1.2.1",
+    "express-rate-limit": "^7.5.0",
     "jsbn": "^1.1.0",
-    "mailparser": "^2.8.0",
-    "minimist": "^1.2.5",
-    "nocache": "^2.1.0",
-    "smtp-server": "^3.7.0",
-    "swagger-jsdoc": "^4.0.0",
-    "swagger-ui-express": "^4.1.4",
-    "winston": "^3.3.3"
+    "mailparser": "^3.7.1",
+    "minimist": "^1.2.8",
+    "nocache": "^4.0.0",
+    "smtp-server": "^3.13.4",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
+    "winston": "^3.17.0"
+  },
+  "scripts": {
+    "audit": "npm audit",
+    "audit-fix": "npm audit fix",
+    "lint": "eslint *.mjs src/**/*.mjs",
+    "lint:fix": "eslint *.mjs src/**/*.mjs --fix",
+    "format": "prettier --write \"**/*.{mjs,json,md}\"",
+    "format:check": "prettier --check \"**/*.{mjs,json,md}\""
+  },
+  "devDependencies": {
+    "eslint": "^9.18.0",
+    "prettier": "^3.4.2"
   }
 }

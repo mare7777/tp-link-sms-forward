@@ -3,25 +3,11 @@ import fs from 'fs'
 import minimist from 'minimist'
 import smtpServerLib from 'smtp-server';
 import mailparser from 'mailparser';
-import axiosBase from 'axios';
-import axiosRetry from 'axios-retry';
 import logger from './src/logger.mjs'
+import { createAxiosWithRetry, createBasicAuthConfig } from './src/axiosConfig.mjs'
 
-const axios = axiosBase.create();
-
-// this will be useful to retry some requests, exponential delay
-const retryDelay = (retryNumber = 0) => {
-  const seconds = Math.pow(2, retryNumber) * 1000;
-  const randomMs = 1000 * Math.random();
-  return seconds + randomMs;
-};
-
+const axios = createAxiosWithRetry();
 let configFilePath = 'config.json';
-
-axiosRetry(axios, {
-  retries: 3,
-  retryDelay,
-});
 
 const argv = minimist(process.argv.slice(2), {
   string: '_', // prevent string to number conversion
@@ -40,13 +26,7 @@ try {
   process.exit(1);
 }
 
-const bearerBuffer = Buffer.from(config.sms_gateway_login + ':' + config.sms_gateway_password, 'utf-8');
-const token = bearerBuffer.toString('base64');
-const axiosConfig = {
-  headers: {
-    'Authorization': `Basic ${token}`
-  }
-};
+const axiosConfig = createBasicAuthConfig(config.sms_gateway_login, config.sms_gateway_password);
 
 function sendSms(to, content) {
   const params = new URLSearchParams();

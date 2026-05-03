@@ -1,4 +1,4 @@
-import encryptionManager from './routerEncryption.mjs'
+import Encryption from './routerEncryption.mjs'
 import { TP_ACT, RouterProtocol } from './routerProtocol.mjs'
 import { httpClient, isRetryableError } from './httpClient.mjs'
 import logger from './logger.mjs'
@@ -8,7 +8,7 @@ import logger from './logger.mjs'
  */
 class RouterClient {
   httpClient = httpClient;
-  encryption = encryptionManager;
+  encryption = null;  // Will be instantiated per client
   protocol = new RouterProtocol();
 
   sessionId = null; // session is obtained via authentication and included in each request via cookie
@@ -18,6 +18,7 @@ class RouterClient {
     this.url = url;
     this.login = login;
     this.password = password;
+    this.encryption = new Encryption();  // Create instance per client
   }
 
   get isAuthenticated() {
@@ -78,7 +79,7 @@ class RouterClient {
     const eeExtractor = /ee="(\d+)"/; // integer
     const nnExtractor = /nn="([0-9A-F]+)"/; // hex encoded
     const seqExtractor = /seq="(\d+)"/; // integer
-        
+
     const eeFound = message.match(eeExtractor);
     const nnFound = message.match(nnExtractor);
     const seqFound = message.match(seqExtractor);
@@ -87,7 +88,7 @@ class RouterClient {
     const nn = nnFound[1]; // public key
     const seq = seqFound[1]; // sequence included in authentication signature
 
-    logger.info("Received encryption params", {ee, nn, seq});
+    logger.debug("Received encryption params", {ee, seq});  // Don't log full public key
 
     return {ee, nn, seq};
   }
@@ -102,8 +103,8 @@ class RouterClient {
     this.encryption.setRSAKey(encryptionSettings.nn, encryptionSettings.ee);
     this.encryption.genAESKey();
 
-    // printing these generated values so we can decrypt response manually for debugging
-    logger.info("Generated AES: ", {aes: this.encryption.getAESKeyString()});
+    // Only log in debug mode, never in production
+    logger.debug("Encryption configured");
   }
 
   /**
@@ -112,7 +113,7 @@ class RouterClient {
   authenticate() {
     // generate auth payload
     const auth = this.encryption.AESEncrypt(this.login + '\n' + this.password, true); // true = encrypt as login
-    logger.info("Sending authentication payload", auth);
+    logger.debug("Sending authentication request");  // Don't log encrypted payload
 
     const loginUrl = this.url + '/cgi/login?data=' + encodeURIComponent(auth.data) + '&sign=' + auth.sign + '&Action=1&LoginStatus=0';
     return this.httpClient.post(loginUrl, null, {
@@ -133,7 +134,7 @@ class RouterClient {
     const setCookieHeader = response.headers['set-cookie'][0];
     const sessionIdRegex = /JSESSIONID=([a-f0-9]+)/;
     this.sessionId = setCookieHeader.match(sessionIdRegex)[1];
-    logger.info("Received session cookie", {sessionId: this.sessionId});
+    logger.debug("Session cookie received");  // Don't log actual session ID
   }
 
   /**
@@ -154,7 +155,7 @@ class RouterClient {
     // extract token id from response content
     const tokenIdRegex = /var token="([a-f0-9]+)"/;
     this.tokenId = response.data.match(tokenIdRegex)[1];
-    logger.info("Received token id:", {tokenId: this.tokenId});
+    logger.debug("Token ID received");  // Don't log actual token
   }
 
   // encrypt the frame

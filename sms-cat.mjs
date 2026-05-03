@@ -2,26 +2,12 @@
 
 import fs from 'fs'
 import minimist from 'minimist'
-import axiosBase from 'axios';
-import axiosRetry from 'axios-retry';
-
 import logger from './src/logger.mjs'
+import { createAxiosWithRetry, createBasicAuthConfig } from './src/axiosConfig.mjs'
+import { ERROR_RETRY_DELAY, HTTP_STATUS } from './src/constants.mjs'
 
-const axios = axiosBase.create();
-
-// this will be useful to retry some requests, exponential delay
-const retryDelay = (retryNumber = 0) => {
-  const seconds = Math.pow(2, retryNumber) * 1000;
-  const randomMs = 1000 * Math.random();
-  return seconds + randomMs;
-};
-
+const axios = createAxiosWithRetry();
 let configFilePath = 'config.json';
-
-axiosRetry(axios, {
-  retries: 3,
-  retryDelay,
-});
 
 const argv = minimist(process.argv.slice(2), {
   string: '_', // prevent string to number conversion
@@ -46,14 +32,7 @@ class SmsPoller {
     this.pollingPeriod = config.pollingPeriod;
     this.url = config.url;
     this.callback = callback;
-
-    const bearerBuffer = Buffer.from(config.login + ':' + config.password, 'utf-8');
-    this.token = bearerBuffer.toString('base64');
-    this.axiosConfig = {
-      headers: {
-        'Authorization': `Basic ${this.token}` 
-      }
-    };
+    this.axiosConfig = createBasicAuthConfig(config.login, config.password);
   }
 
   // noinspection InfiniteRecursionJS
@@ -66,19 +45,18 @@ class SmsPoller {
         continueWhile = false;
       } catch(exception) {
         // catch network errors
-        logger.error("Error while connecting, retrying in 10 seconds. " + exception.message);
-        // wait 10 seconds
-        await new Promise(resolve => setTimeout(resolve, 10000));
+        logger.error("Error while connecting, retrying in " + (ERROR_RETRY_DELAY/1000) + " seconds. " + exception.message);
+        await new Promise(resolve => setTimeout(resolve, ERROR_RETRY_DELAY));
       }
     }
-    
-    if (response.status === 502) {
+
+    if (response.status === HTTP_STATUS.BAD_GATEWAY) {
       // Status 502 is a connection timeout error,
       // may happen when the connection was pending for too long,
       // and the remote server or a proxy closed it
       // let's reconnect
       await this.poll();
-    } else if (response.status !== 200) {
+    } else if (response.status !== HTTP_STATUS.OK) {
       // An error - let's show it
       logger.notice("Received abnormal response " + response.statusText);
       // Reconnect in one second
