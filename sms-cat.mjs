@@ -30,9 +30,21 @@ try {
 class SmsPoller {
   constructor(config, callback) {
     this.pollingPeriod = config.pollingPeriod;
+    this.pollingJitterMs = config.pollingJitterMs || 0;
+    this.errorRetryDelay = config.errorRetryDelay || ERROR_RETRY_DELAY;
     this.url = config.url;
     this.callback = callback;
     this.axiosConfig = createBasicAuthConfig(config.login, config.password);
+  }
+
+  getNextPollingDelay() {
+    const maxJitter = Math.max(0, this.pollingJitterMs);
+    const jitter = maxJitter > 0 ? Math.floor(Math.random() * (maxJitter + 1)) : 0;
+    return this.pollingPeriod + jitter;
+  }
+
+  async wait(ms) {
+    await new Promise(resolve => setTimeout(resolve, ms));
   }
 
   // noinspection InfiniteRecursionJS
@@ -45,8 +57,8 @@ class SmsPoller {
         continueWhile = false;
       } catch(exception) {
         // catch network errors
-        logger.error("Error while connecting, retrying in " + (ERROR_RETRY_DELAY/1000) + " seconds. " + exception.message);
-        await new Promise(resolve => setTimeout(resolve, ERROR_RETRY_DELAY));
+        logger.error("Error while connecting, retrying in " + (this.errorRetryDelay/1000) + " seconds. " + exception.message);
+        await this.wait(this.errorRetryDelay);
       }
     }
 
@@ -60,7 +72,7 @@ class SmsPoller {
       // An error - let's show it
       logger.notice("Received abnormal response " + response.statusText);
       // Reconnect in one second
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await this.wait(this.errorRetryDelay);
       await this.poll();
     } else {
       // we need to number the messages so we can mark them read later if needed
@@ -77,7 +89,7 @@ class SmsPoller {
       const waitingForUnreadProcessing = this.processUnreadSms(unread);
 
       // Call poll() again to get the next message
-      await new Promise(resolve => setTimeout(resolve, this.pollingPeriod));
+      await this.wait(this.getNextPollingDelay());
       await waitingForUnreadProcessing;
       await this.poll();
     }
@@ -117,6 +129,7 @@ function on_sms_received(sms) {
 
 const poller = new SmsPoller({
   pollingPeriod: config.api_client_polling_delay,
+  pollingJitterMs: config.api_client_polling_jitter_ms,
   url: config.api_client_url,
   login: config.api_client_login,
   password: config.api_client_password,

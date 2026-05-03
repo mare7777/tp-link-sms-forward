@@ -139,6 +139,23 @@ curl --user apiuser:pleasechangeme -d '{"to":"0123456789", "content":"test2"}' -
 
 ### Receive SMS with SMS cat
 
+
+### SMS 輪詢頻率建議（即時性 vs Router 負載）
+
+`sms-cat.mjs` 支援「基礎輪詢 + jitter」設定：
+
+- `api_client_polling_delay`: 基礎輪詢間隔（毫秒）
+- `api_client_polling_jitter_ms`: 每次輪詢額外隨機延遲（0 ~ N 毫秒）
+
+建議檔位：
+
+- **高即時**：`1500` + `300`（約 1.5~1.8 秒）
+- **平衡**：`3000` + `500`（約 3.0~3.5 秒）
+- **低負載**：`5000` + `1000`（約 5.0~6.0 秒）
+
+> 建議先從平衡檔開始，再依實際漏訊風險與路由器負載調整。
+
+
 ```bash
 # Example piping new SMS to command to your own command process_incoming_sms
 ./sms-cat.mjs --config=/tmp/config.json | \
@@ -151,7 +168,8 @@ curl --user apiuser:pleasechangeme -d '{"to":"0123456789", "content":"test2"}' -
     "api_client_url": "http://localhost:3000",
     "api_client_login": "apiuser",
     "api_client_password": "pleasechangeme",
-    "api_client_polling_delay": 5000
+    "api_client_polling_delay": 1500,
+    "api_client_polling_jitter_ms": 300
 }
 ```
 
