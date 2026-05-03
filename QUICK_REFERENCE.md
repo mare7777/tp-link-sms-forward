@@ -89,3 +89,27 @@ curl --user apiuser:password \
 curl --user apiuser:password \
   -X DELETE http://127.0.0.1:3000/api/v1/sms/outbox/1
 ```
+
+## Telegram 轉送（sms-cat 內建）
+
+在 `config.json` 設定：
+
+```json
+{
+  "telegram_enabled": true,
+  "telegram_bot_token": "<BOT_TOKEN>",
+  "telegram_chat_id": "<CHAT_ID>",
+  "sms_delivery_mode": "at_least_once"
+}
+```
+
+啟動：
+
+```bash
+node sms-cat.mjs --config=./config.json
+```
+
+重試與退避：
+- `telegram_max_retries`
+- `telegram_retry_initial_backoff_ms`
+- `telegram_retry_max_backoff_ms`

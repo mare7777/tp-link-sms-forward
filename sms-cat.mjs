@@ -43,6 +43,8 @@ class SmsPoller {
     this.markReadProcessing = false;
     this.dedupCacheTtlMs = 10 * 60 * 1000;
     this.dedupCache = new Map();
+    this.deliveryMode = config.deliveryMode || 'at_least_once';
+    this.telegramClient = new TelegramClient(config);
   }
 
   getNextPollingDelay() {
@@ -104,6 +106,8 @@ class SmsPoller {
   }
     
   async processUnreadSms(unreadSms) {
+    const readCandidates = [];
+
     for (const element of unreadSms) {
       const smsData = {
         from: element.from,
@@ -111,15 +115,41 @@ class SmsPoller {
         receivedTime: element.receivedTime,
       };
 
-      if (this.shouldForward(smsData)) {
-        this.callback(smsData);
-        logger.info("SMS forwarded", { sms: smsData });
+      if (!this.shouldForward(smsData)) {
+        logger.notice("Duplicate SMS skipped", { order: element.order, from: element.from });
+        readCandidates.push(element);
+        continue;
+      }
+
+      this.callback(smsData);
+      logger.info("SMS forwarded", { order: element.order, from: element.from });
+
+      const telegramResult = await this.telegramClient.sendSmsNotification(smsData, { order: element.order });
+      const shouldMarkRead = this.shouldMarkReadAfterDelivery(telegramResult);
+
+      if (shouldMarkRead) {
+        readCandidates.push(element);
       } else {
-        logger.notice("Duplicate SMS skipped", { sms: smsData });
+        logger.notice('SMS kept unread for next polling due to Telegram delivery failure', {
+          order: element.order,
+          from: element.from,
+        });
       }
     }
 
-    await this.markUnreadAsRead(unreadSms);
+    await this.markUnreadAsRead(readCandidates);
+  }
+
+  shouldMarkReadAfterDelivery(telegramResult) {
+    if (this.deliveryMode === 'at_most_once') {
+      return true;
+    }
+
+    if (!this.telegramClient.enabled) {
+      return true;
+    }
+
+    return telegramResult.sent || telegramResult.skipped;
   }
 
   shouldForward(smsData) {
@@ -229,6 +259,14 @@ const poller = new SmsPoller({
   url: config.api_client_url,
   login: config.api_client_login,
   password: config.api_client_password,
+  telegram_enabled: config.telegram_enabled,
+  telegram_bot_token: config.telegram_bot_token,
+  telegram_chat_id: config.telegram_chat_id,
+  telegram_max_retries: config.telegram_max_retries,
+  telegram_retry_initial_backoff_ms: config.telegram_retry_initial_backoff_ms,
+  telegram_retry_max_backoff_ms: config.telegram_retry_max_backoff_ms,
+  telegram_timeout_ms: config.telegram_timeout_ms,
+  deliveryMode: config.sms_delivery_mode,
 }, on_sms_received);
 
 await poller.poll();
