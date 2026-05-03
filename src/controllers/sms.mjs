@@ -106,6 +106,25 @@
  *             type: boolean
  *          required: false
  *          description: Filter on this unread value, true = only unread SMS, false = only read SMS. Due to protocol limitations, reported results for filter unread=false are inaccurate. Filter unread=true does not have this issue and reports correctly the last 8 unread SMS.
+ *        - in: query
+ *          name: since
+ *          schema:
+ *             type: string
+ *             format: date-time
+ *          required: false
+ *          description: Return only SMS received strictly after this ISO-8601 datetime.
+ *        - in: query
+ *          name: fingerprint
+ *          schema:
+ *             type: string
+ *          required: false
+ *          description: Return only SMS coming after this fingerprint in the current stable ordering.
+ *        - in: query
+ *          name: unseenOnly
+ *          schema:
+ *             type: boolean
+ *          required: false
+ *          description: If true, return only messages not yet seen by this bridge instance, based on message fingerprint cache.
  *      responses:
  *        "200":
  *          description: List of inbox SMS
@@ -214,20 +233,109 @@ const payloadOutbox = {
   attrs: ['index', 'to', 'content', 'sendTime'],
 };
 
+
+const seenInboxFingerprints = new Set();
+const MAX_SEEN_FINGERPRINTS = 256;
+
+function toIsoDateTime(routerDateTime) {
+  if (typeof routerDateTime !== 'string') {
+    return null;
+  }
+
+  const match = routerDateTime.match(/^(\d{4})-(\d{2})-(\d{2})\s(\d{2}):(\d{2}):(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+
+  const [, year, month, day, hour, minute, second] = match;
+  return `${year}-${month}-${day}T${hour}:${minute}:${second}Z`;
+}
+
+function buildInboxFingerprint(entry) {
+  return [entry.index, entry.from, entry.content, entry.receivedTime].map((v) => v ?? '').join('|');
+}
+
+function normalizeInboxEntry(entry) {
+  const fingerprint = buildInboxFingerprint(entry);
+
+  return {
+    ...entry,
+    receivedTimeIso: toIsoDateTime(entry.receivedTime),
+    fingerprint,
+  };
+}
+
+function compareInboxEntriesDesc(left, right) {
+  const leftIso = left.receivedTimeIso;
+  const rightIso = right.receivedTimeIso;
+
+  if (leftIso && rightIso && leftIso !== rightIso) {
+    return rightIso.localeCompare(leftIso);
+  }
+
+  if (left.index !== right.index) {
+    return right.index - left.index;
+  }
+
+  return left.fingerprint.localeCompare(right.fingerprint);
+}
+
+function addToSeenCache(entries) {
+  for (const entry of entries) {
+    seenInboxFingerprints.add(entry.fingerprint);
+    if (seenInboxFingerprints.size > MAX_SEEN_FINGERPRINTS) {
+      const oldestFingerprint = seenInboxFingerprints.values().next().value;
+      seenInboxFingerprints.delete(oldestFingerprint);
+    }
+  }
+}
+
 router.get('/inbox', async function (req, res) {
   const client = req.app.get('router_client');
 
   client.execute([payloadResetInboxCursor, payloadInbox])
     .then((response) => {
+      response.data = response.data.map(normalizeInboxEntry).sort(compareInboxEntriesDesc);
+
       // apply filters
       if (typeof req.query.unread != 'undefined') {
         const unreadFilter = req.query.unread == 'true';
         response.data = response.data.filter(entry => entry.unread == unreadFilter);
       }
 
+      if (typeof req.query.since !== 'undefined') {
+        const sinceEpoch = Date.parse(req.query.since);
+        if (Number.isNaN(sinceEpoch)) {
+          res.status(400).json({status: 400, error: 'Invalid since query parameter. Expected ISO-8601 datetime.'});
+          return null;
+        }
+
+        response.data = response.data.filter((entry) => {
+          if (!entry.receivedTimeIso) {
+            return false;
+          }
+          return Date.parse(entry.receivedTimeIso) > sinceEpoch;
+        });
+      }
+
+      if (typeof req.query.fingerprint !== 'undefined') {
+        const pivotIndex = response.data.findIndex((entry) => entry.fingerprint === req.query.fingerprint);
+        response.data = pivotIndex >= 0 ? response.data.slice(0, pivotIndex) : response.data;
+      }
+
+      if (req.query.unseenOnly == 'true') {
+        response.data = response.data.filter((entry) => !seenInboxFingerprints.has(entry.fingerprint));
+      }
+
+      addToSeenCache(response.data);
+
       return response;
     })
     .then((response) => {
+      if (!response) {
+        return;
+      }
+
       res.json({status: 200, data: response.data});
     })
     .catch((exception) => {

@@ -78,6 +78,7 @@ For detailed testing instructions, see [TESTING.md](TESTING.md).
 * Script and API must be in the same network of the router (IP is verified by the router's backend).
 * You should avoid connecting to the router web UI while using these tools because it might cause unexpected behaviors.
 * Time and timezone must be configured on router for accurate received SMS times.
+* `/api/v1/sms/inbox` responses include stable `fingerprint` and normalized `receivedTimeIso` fields for incremental polling and comparison.
 * This implementation uses the router's proprietary encryption protocol. While efforts have been made to ensure security, use at your own risk.
 
 ### Send SMS command
@@ -129,6 +130,15 @@ For detailed testing instructions, see [TESTING.md](TESTING.md).
 # ==============
 # List received SMS
 curl --user apiuser:pleasechangeme -X GET "http://127.0.0.1:3000/api/v1/sms/inbox" -H  "accept: application/json"
+
+# List unread SMS received after a given timestamp (ISO-8601 UTC)
+curl --user apiuser:pleasechangeme -X GET "http://127.0.0.1:3000/api/v1/sms/inbox?unread=true&since=2026-01-01T00:00:00Z" -H "accept: application/json"
+
+# Poll incrementally from the last known fingerprint
+curl --user apiuser:pleasechangeme -X GET "http://127.0.0.1:3000/api/v1/sms/inbox?fingerprint=35%7C%2B33123456789%7CTest%20content%7C2020-07-16%2023:04:16" -H "accept: application/json"
+
+# Return only unseen messages from bridge cache
+curl --user apiuser:pleasechangeme -X GET "http://127.0.0.1:3000/api/v1/sms/inbox?unseenOnly=true" -H "accept: application/json"
 
 # Sending SMS application/x-www-form-urlencoded style
 curl --user apiuser:pleasechangeme -d to=0123456789 -d content=test1 -X POST "http://127.0.0.1:3000/api/v1/sms/outbox" -H  "accept: application/json"
