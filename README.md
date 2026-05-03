@@ -96,18 +96,22 @@ node sms-cat.mjs --config=./config.json | \
 
 ---
 
-## 即時性調校（polling 與 router 負載）
+## 即時性調校（`api_client_polling_delay` 建議值）
 
 `sms-cat.mjs` 採輪詢模型，主要參數：
 
 - `api_client_polling_delay`：基礎輪詢間隔（毫秒）
 - `api_client_polling_jitter_ms`：每輪額外 jitter（0~N 毫秒）
 
-建議起點：
+建議值（先從「平衡」開始，再依需求微調）：
 
-- 高即時：`1500` + `300`
-- 平衡：`3000` + `500`
-- 低負載：`5000` + `1000`
+- 高即時（延遲優先）：`api_client_polling_delay=1500`、`api_client_polling_jitter_ms=300`
+- 平衡（推薦）：`api_client_polling_delay=3000`、`api_client_polling_jitter_ms=500`
+- 低負載（省資源）：`api_client_polling_delay=5000`、`api_client_polling_jitter_ms=1000`
+
+估算端到端新增訊息偵測時間可用：
+
+`偵測時間 ≈ polling_delay + (jitter_ms / 2) + router 回應時間`
 
 ---
 

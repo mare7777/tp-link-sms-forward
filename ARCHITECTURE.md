@@ -151,6 +151,30 @@
 
 ## 資料流程圖
 
+### SMS polling latency budget（簡圖）
+
+```
+手機送出 SMS (T0)
+   │
+   ├─ 電信網路 + Router 寫入收件匣        ~ 0.5s - 3s
+   │
+Router inbox ready
+   │
+   ├─ 等待下次 polling 視窗               ~ 0 - polling_delay
+   ├─ jitter 等待                         ~ 0 - polling_jitter_ms
+   ├─ API 查詢 + Router 回應              ~ 0.2s - 1.5s
+   │
+sms-cat 輸出新訊息 (T1)
+   │
+   ├─ Telegram forward 腳本處理           ~ 0.05s - 0.5s
+   ├─ Telegram Bot API 往返               ~ 0.2s - 1.5s
+   │
+Telegram 收到推送 (T2)
+
+端到端延遲：Δe2e = T2 - T0
+其中可調主因：api_client_polling_delay / api_client_polling_jitter_ms
+```
+
 ### 1. 發送 SMS 流程
 
 ```
