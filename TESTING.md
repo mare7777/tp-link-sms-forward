@@ -226,6 +226,49 @@ node sms-cat.mjs
 
 從手機發送 SMS 到路由器的 SIM 卡號碼，應該會在 sms-cat 終端機看到訊息。
 
+#### 4.3 延遲量測步驟（收訊到 Telegram 推送端到端秒數）
+
+目標：量測「手機送出 SMS」到「Telegram 收到推送」的端到端延遲（秒）。
+
+1) **準備雙終端**
+
+- 終端 A：啟動 API 與 SMS 輪詢
+  ```bash
+  node api-bridge.mjs
+  node sms-cat.mjs --config=./config.json | tee /tmp/sms-cat.log
+  ```
+- 終端 B：啟動 Telegram forward 腳本（可用 README 的管線範例），並將送出時刻記錄到 `/tmp/tg-forward.log`。
+
+2) **建立測試訊息 ID**
+
+- 用手機發送一則含唯一字串的 SMS，例如：`LATENCY-20260503-001`。
+- 同步記錄手機「送出時間」`T0`（建議直接看秒數，24 小時制）。
+
+3) **記錄輪詢收到時間**
+
+- 在 `/tmp/sms-cat.log` 搜尋該唯一字串，記下 sms-cat 印出的時間 `T1`：
+  ```bash
+  rg "LATENCY-20260503-001" /tmp/sms-cat.log
+  ```
+
+4) **記錄 Telegram 推送成功時間**
+
+- 在 forward 腳本的 log 搜尋同一字串，記下送出到 Telegram API 成功時間 `T2`：
+  ```bash
+  rg "LATENCY-20260503-001" /tmp/tg-forward.log
+  ```
+
+5) **計算指標**
+
+- Router 收訊到輪詢偵測：`Δpoll = T1 - T0`
+- 輪詢偵測到 Telegram 推送：`Δforward = T2 - T1`
+- 端到端延遲：`Δe2e = T2 - T0`
+
+6) **重複取樣**
+
+- 至少量測 10 次，計算 p50 / p95。
+- 若 `Δpoll` 過大，優先調小 `api_client_polling_delay`，並觀察路由器 CPU 與錯誤率是否上升。
+
 ---
 
 ### 測試 5: SMTP to SMS Gateway
