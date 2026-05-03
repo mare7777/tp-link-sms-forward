@@ -2,6 +2,7 @@
 
 import fs from 'fs'
 import crypto from 'crypto'
+import path from 'path'
 import minimist from 'minimist'
 import logger from './src/logger.mjs'
 import { createAxiosWithRetry, createBasicAuthConfig } from './src/axiosConfig.mjs'
@@ -44,6 +45,48 @@ class SmsPoller {
     this.markReadProcessing = false;
     this.dedupCacheTtlMs = 10 * 60 * 1000;
     this.dedupCache = new Map();
+    this.cursorStatePath = path.resolve(config.cursorStatePath || 'state/sms-cursor.json');
+    this.cursorState = this.loadCursorState();
+  }
+
+  loadCursorState() {
+    try {
+      if (!fs.existsSync(this.cursorStatePath)) {
+        return {};
+      }
+      const raw = fs.readFileSync(this.cursorStatePath, 'utf8');
+      const parsed = JSON.parse(raw);
+      return {
+        lastFingerprint: parsed.lastFingerprint,
+        lastSince: parsed.lastSince,
+      };
+    } catch (exception) {
+      logger.error('Failed to load cursor state, using empty cursor. ' + exception.message);
+      return {};
+    }
+  }
+
+  saveCursorState() {
+    try {
+      fs.mkdirSync(path.dirname(this.cursorStatePath), { recursive: true });
+      fs.writeFileSync(this.cursorStatePath, JSON.stringify(this.cursorState, null, 2));
+    } catch (exception) {
+      logger.error('Failed to save cursor state. ' + exception.message);
+    }
+  }
+
+  buildInboxUrl(useCursor = true) {
+    const endpoint = new URL('/api/v1/sms/inbox', this.url);
+    endpoint.searchParams.set('unread', 'true');
+    endpoint.searchParams.set('unseenOnly', 'true');
+
+    if (useCursor && this.cursorState.lastFingerprint) {
+      endpoint.searchParams.set('fingerprint', this.cursorState.lastFingerprint);
+    } else if (useCursor && this.cursorState.lastSince) {
+      endpoint.searchParams.set('since', this.cursorState.lastSince);
+    }
+
+    return endpoint.toString();
   }
 
   getNextPollingDelay() {
@@ -62,9 +105,18 @@ class SmsPoller {
     let response;
     while (continueWhile) {
       try {
-        response = await axios.get(this.url + "/api/v1/sms/inbox", this.axiosConfig);
+        response = await axios.get(this.buildInboxUrl(true), this.axiosConfig);
         continueWhile = false;
       } catch(exception) {
+        const isCursorNotFound = exception?.response?.status === HTTP_STATUS.NOT_FOUND;
+        if (isCursorNotFound && (this.cursorState.lastFingerprint || this.cursorState.lastSince)) {
+          logger.notice('Cursor not found, fallback to unread full scan + dedup');
+          this.cursorState = {};
+          this.saveCursorState();
+          response = await axios.get(this.buildInboxUrl(false), this.axiosConfig);
+          continueWhile = false;
+          continue;
+        }
         // catch network errors
         logger.error("Error while connecting, retrying in " + (this.errorRetryDelay/1000) + " seconds. " + exception.message);
         await this.wait(this.errorRetryDelay);
@@ -105,6 +157,9 @@ class SmsPoller {
   }
     
   async processUnreadSms(unreadSms) {
+    let lastProcessedFingerprint = null;
+    let lastProcessedSince = null;
+
     for (const element of unreadSms) {
       const smsData = {
         from: element.from,
@@ -115,12 +170,33 @@ class SmsPoller {
       if (this.shouldForward(smsData)) {
         this.callback(smsData);
         logger.info("SMS forwarded", { sms: smsData });
+        lastProcessedFingerprint = element.fingerprint || lastProcessedFingerprint;
+        lastProcessedSince = this.toIsoTime(element.receivedTime) || lastProcessedSince;
       } else {
         logger.notice("Duplicate SMS skipped", { sms: smsData });
       }
     }
 
     await this.markUnreadAsRead(unreadSms);
+
+    if (lastProcessedFingerprint || lastProcessedSince) {
+      this.cursorState = {
+        lastFingerprint: lastProcessedFingerprint || this.cursorState.lastFingerprint,
+        lastSince: lastProcessedSince || this.cursorState.lastSince,
+      };
+      this.saveCursorState();
+    }
+  }
+
+  toIsoTime(receivedTime) {
+    if (!receivedTime) {
+      return null;
+    }
+    const date = new Date(receivedTime);
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+    return date.toISOString();
   }
 
   shouldForward(smsData) {
