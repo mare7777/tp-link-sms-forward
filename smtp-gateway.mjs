@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-import fs from 'fs'
 import minimist from 'minimist'
 import smtpServerLib from 'smtp-server';
 import mailparser from 'mailparser';
 import logger from './src/logger.mjs'
 import { createAxiosWithRetry, createBasicAuthConfig } from './src/axiosConfig.mjs'
+import { loadConfig } from './src/config.mjs'
 
 const axios = createAxiosWithRetry();
 let configFilePath = 'config.json';
@@ -17,12 +17,11 @@ if (typeof argv['config'] !== 'undefined') {
   configFilePath = argv['config'];
 }
 
-let config ;
+let config;
 try {
-  let rawConfig = fs.readFileSync(configFilePath);
-  config = JSON.parse(rawConfig);
+  config = loadConfig(configFilePath);
 } catch(exception) {
-  console.error('config file ' + configFilePath + ' could not be read');
+  console.error(exception.message);
   process.exit(1);
 }
 

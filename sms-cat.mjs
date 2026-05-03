@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
-import fs from 'fs'
 import crypto from 'crypto'
 import path from 'path'
 import minimist from 'minimist'
 import logger from './src/logger.mjs'
 import { createAxiosWithRetry, createBasicAuthConfig } from './src/axiosConfig.mjs'
 import { ERROR_RETRY_DELAY, HTTP_STATUS } from './src/constants.mjs'
+import { loadConfig } from './src/config.mjs'
 
 const axios = createAxiosWithRetry();
 let configFilePath = 'config.json';
@@ -19,12 +19,11 @@ if (typeof argv['config'] !== 'undefined') {
   configFilePath = argv['config'];
 }
 
-let config ;
+let config;
 try {
-  let rawConfig = fs.readFileSync(configFilePath);
-  config = JSON.parse(rawConfig);
+  config = loadConfig(configFilePath);
 } catch(exception) {
-  console.error('config file ' + configFilePath + ' could not be read');
+  console.error(exception.message);
   process.exit(1);
 }
 
@@ -173,7 +172,10 @@ class SmsPoller {
         lastProcessedFingerprint = element.fingerprint || lastProcessedFingerprint;
         lastProcessedSince = this.toIsoTime(element.receivedTime) || lastProcessedSince;
       } else {
-        logger.notice("Duplicate SMS skipped", { sms: smsData });
+        logger.notice('SMS kept unread for next polling due to Telegram delivery failure', {
+          order: element.order,
+          from: element.from,
+        });
       }
     }
 
@@ -306,6 +308,14 @@ const poller = new SmsPoller({
   url: config.api_client_url,
   login: config.api_client_login,
   password: config.api_client_password,
+  telegram_enabled: config.telegram_enabled,
+  telegram_bot_token: config.telegram_bot_token,
+  telegram_chat_id: config.telegram_chat_id,
+  telegram_max_retries: config.telegram_max_retries,
+  telegram_retry_initial_backoff_ms: config.telegram_retry_initial_backoff_ms,
+  telegram_retry_max_backoff_ms: config.telegram_retry_max_backoff_ms,
+  telegram_timeout_ms: config.telegram_timeout_ms,
+  deliveryMode: config.sms_delivery_mode,
 }, on_sms_received);
 
 await poller.poll();

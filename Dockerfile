@@ -1,13 +1,11 @@
 # syntax=docker/dockerfile:1
 FROM node:lts-alpine
-WORKDIR /home/node
-RUN apk --no-cache add curl
-RUN curl -s -L -O "https://github.com/plewin/tp-link-modem-router/archive/master.zip"
-RUN unzip master.zip
-WORKDIR /home/node/tp-link-modem-router-master
-RUN yarn install
 
-FROM node:lts-alpine
 WORKDIR /home/node/tp-link-modem-router-master
-COPY --from=0 /home/node/tp-link-modem-router-master .
+
+COPY package.json yarn.lock ./
+RUN yarn install --production --frozen-lockfile
+
+COPY . .
+
 CMD ["node", "./api-bridge.mjs"]
