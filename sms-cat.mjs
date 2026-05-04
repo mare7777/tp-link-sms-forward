@@ -172,6 +172,7 @@ class SmsPoller {
       };
 
       if (this.shouldForward(smsData)) {
+        const dedupKey = this.getSmsDedupKey(smsData);
         let deliverResult = { sent: false, skipped: true };
         try {
           this.callback(smsData);
@@ -200,6 +201,7 @@ class SmsPoller {
             telegramSkipped: Boolean(deliverResult.skipped),
           });
         } else {
+          this.releaseDedupKey(dedupKey);
           logger.notice('SMS kept unread for next polling due to Telegram delivery failure', {
             order: element.order,
             from: element.from,
@@ -254,6 +256,13 @@ class SmsPoller {
         this.dedupCache.delete(key);
       }
     }
+  }
+
+  releaseDedupKey(key) {
+    if (!key) {
+      return;
+    }
+    this.dedupCache.delete(key);
   }
 
   getSmsDedupKey(smsData) {
