@@ -14,6 +14,9 @@
  *          index:
  *            type: integer
  *            description: SMS id as stored in the router
+ *          order:
+ *            type: integer
+ *            description: Router order number matching the list position to reuse with PATCH/DELETE operations.
  *          from:
  *            type: string
  *            format: phonenumber
@@ -29,6 +32,7 @@
  *            description: Whether the SMS is marked unread
  *        example:
  *            index: 35
+ *            order: 1
  *            from: '+33123456789'
  *            content: 'Test content'
  *            receivedTime: '2020-07-16 23:04:16'
@@ -105,7 +109,7 @@
  *          schema:
  *             type: boolean
  *          required: false
- *          description: Filter on this unread value, true = only unread SMS, false = only read SMS. Due to protocol limitations, reported results for filter unread=false are inaccurate. Filter unread=true does not have this issue and reports correctly the last 8 unread SMS.
+ *          description: Filter on this unread value. unread=true uses the router unread inbox source so it matches the web UI unread state more closely. unread=false is still derived from the standard inbox list and may be inaccurate due to protocol limitations.
  *        - in: query
  *          name: since
  *          schema:
@@ -238,6 +242,10 @@ const seenInboxFingerprints = new Set();
 const MAX_SEEN_FINGERPRINTS = 256;
 
 function toIsoDateTime(routerDateTime) {
+  if (routerDateTime instanceof Date) {
+    return Number.isNaN(routerDateTime.getTime()) ? null : routerDateTime.toISOString();
+  }
+
   if (typeof routerDateTime !== 'string') {
     return null;
   }
@@ -251,18 +259,26 @@ function toIsoDateTime(routerDateTime) {
   return `${year}-${month}-${day}T${hour}:${minute}:${second}Z`;
 }
 
-function buildInboxFingerprint(entry) {
-  return [entry.index, entry.from, entry.content, entry.receivedTime].map((v) => v ?? '').join('|');
+function buildInboxFingerprint(entry, receivedTimeIso = null) {
+  return [entry.index, entry.from, entry.content, receivedTimeIso ?? entry.receivedTime].map((v) => v ?? '').join('|');
 }
 
-function normalizeInboxEntry(entry) {
-  const fingerprint = buildInboxFingerprint(entry);
+function normalizeInboxEntry(entry, order) {
+  const receivedTimeIso = toIsoDateTime(entry.receivedTime);
+  const fingerprint = buildInboxFingerprint(entry, receivedTimeIso);
 
   return {
     ...entry,
-    receivedTimeIso: toIsoDateTime(entry.receivedTime),
+    order,
+    receivedTimeIso,
     fingerprint,
   };
+}
+
+function normalizeInboxEntries(entries = []) {
+  return entries
+    .map((entry, index) => normalizeInboxEntry(entry, index + 1))
+    .sort(compareInboxEntriesDesc);
 }
 
 function compareInboxEntriesDesc(left, right) {
@@ -280,6 +296,31 @@ function compareInboxEntriesDesc(left, right) {
   return left.fingerprint.localeCompare(right.fingerprint);
 }
 
+function resolveUnreadInboxEntries(fullInboxEntries, unreadInboxEntries) {
+  const orderByFingerprint = new Map(
+    fullInboxEntries.map((entry) => [entry.fingerprint, entry.order]),
+  );
+
+  return unreadInboxEntries.map((entry) => ({
+    ...entry,
+    order: orderByFingerprint.get(entry.fingerprint) ?? entry.order,
+  }));
+}
+
+async function fetchInboxEntries(client, unreadFilter) {
+  const fullInboxResponse = await client.execute([payloadResetInboxCursor, payloadInbox]);
+  const fullInboxEntries = normalizeInboxEntries(fullInboxResponse.data);
+
+  if (unreadFilter !== true) {
+    return fullInboxEntries;
+  }
+
+  const unreadInboxResponse = await client.execute([payloadResetInboxCursor, payloadInboxUnread]);
+  const unreadInboxEntries = normalizeInboxEntries(unreadInboxResponse.data);
+
+  return resolveUnreadInboxEntries(fullInboxEntries, unreadInboxEntries);
+}
+
 function addToSeenCache(entries) {
   for (const entry of entries) {
     seenInboxFingerprints.add(entry.fingerprint);
@@ -293,55 +334,46 @@ function addToSeenCache(entries) {
 router.get('/inbox', async function (req, res) {
   const client = req.app.get('router_client');
 
-  client.execute([payloadResetInboxCursor, payloadInbox])
-    .then((response) => {
-      response.data = response.data.map(normalizeInboxEntry).sort(compareInboxEntriesDesc);
+  try {
+    const unreadFilterEnabled = typeof req.query.unread !== 'undefined';
+    const unreadFilter = req.query.unread == 'true';
+    let data = await fetchInboxEntries(client, unreadFilterEnabled ? unreadFilter : undefined);
 
-      // apply filters
-      if (typeof req.query.unread != 'undefined') {
-        const unreadFilter = req.query.unread == 'true';
-        response.data = response.data.filter(entry => entry.unread == unreadFilter);
-      }
+    if (unreadFilterEnabled && unreadFilter === false) {
+      data = data.filter((entry) => entry.unread == unreadFilter);
+    }
 
-      if (typeof req.query.since !== 'undefined') {
-        const sinceEpoch = Date.parse(req.query.since);
-        if (Number.isNaN(sinceEpoch)) {
-          res.status(400).json({status: 400, error: 'Invalid since query parameter. Expected ISO-8601 datetime.'});
-          return null;
-        }
-
-        response.data = response.data.filter((entry) => {
-          if (!entry.receivedTimeIso) {
-            return false;
-          }
-          return Date.parse(entry.receivedTimeIso) > sinceEpoch;
-        });
-      }
-
-      if (typeof req.query.fingerprint !== 'undefined') {
-        const pivotIndex = response.data.findIndex((entry) => entry.fingerprint === req.query.fingerprint);
-        response.data = pivotIndex >= 0 ? response.data.slice(0, pivotIndex) : response.data;
-      }
-
-      if (req.query.unseenOnly == 'true') {
-        response.data = response.data.filter((entry) => !seenInboxFingerprints.has(entry.fingerprint));
-      }
-
-      addToSeenCache(response.data);
-
-      return response;
-    })
-    .then((response) => {
-      if (!response) {
+    if (typeof req.query.since !== 'undefined') {
+      const sinceEpoch = Date.parse(req.query.since);
+      if (Number.isNaN(sinceEpoch)) {
+        res.status(400).json({status: 400, error: 'Invalid since query parameter. Expected ISO-8601 datetime.'});
         return;
       }
 
-      res.json({status: 200, data: response.data});
-    })
-    .catch((exception) => {
-      const sanitized = sanitizeError(exception);
-      res.status(500).json({status: 500, error: sanitized.message});
-    });
+      data = data.filter((entry) => {
+        if (!entry.receivedTimeIso) {
+          return false;
+        }
+        return Date.parse(entry.receivedTimeIso) > sinceEpoch;
+      });
+    }
+
+    if (typeof req.query.fingerprint !== 'undefined') {
+      const pivotIndex = data.findIndex((entry) => entry.fingerprint === req.query.fingerprint);
+      data = pivotIndex >= 0 ? data.slice(0, pivotIndex) : data;
+    }
+
+    if (req.query.unseenOnly == 'true') {
+      data = data.filter((entry) => !seenInboxFingerprints.has(entry.fingerprint));
+    }
+
+    addToSeenCache(data);
+
+    res.json({status: 200, data});
+  } catch (exception) {
+    const sanitized = sanitizeError(exception);
+    res.status(500).json({status: 500, error: sanitized.message});
+  }
 });
 
 router.patch('/inbox/:smsOrderNumber(\\d+)', async function (req, res) {

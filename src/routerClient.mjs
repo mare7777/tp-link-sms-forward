@@ -111,6 +111,7 @@ class RouterClient {
    * Send authentication request to mr600
    */
   authenticate() {
+    this.encryption.setHash(this.login, this.password);
     // generate auth payload
     const auth = this.encryption.AESEncrypt(this.login + '\n' + this.password, true); // true = encrypt as login
     logger.debug("Sending authentication request");  // Don't log encrypted payload
@@ -131,9 +132,18 @@ class RouterClient {
    * Extract the cookie from response headers of an authentication response
    */
   extractSessionIdFromAuthenticationResponse(response) {
+    const retCodeMatch = String(response.data).match(/\$\.ret=(\d+);/);
+    if (!retCodeMatch || retCodeMatch[1] !== '0') {
+      throw new Error(`Authentication rejected by router (ret=${retCodeMatch ? retCodeMatch[1] : 'unknown'})`);
+    }
+
     const setCookieHeader = response.headers['set-cookie'][0];
     const sessionIdRegex = /JSESSIONID=([a-f0-9]+)/;
-    this.sessionId = setCookieHeader.match(sessionIdRegex)[1];
+    const sessionIdMatch = setCookieHeader.match(sessionIdRegex);
+    if (!sessionIdMatch) {
+      throw new Error('Router did not return a valid session cookie');
+    }
+    this.sessionId = sessionIdMatch[1];
     logger.debug("Session cookie received");  // Don't log actual session ID
   }
 

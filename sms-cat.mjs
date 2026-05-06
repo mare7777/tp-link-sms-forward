@@ -139,13 +139,11 @@ class SmsPoller {
       await this.wait(this.errorRetryDelay);
       await this.poll();
     } else {
-      // we need to number the messages so we can mark them read later if needed
       let message = await response.data;
-      let i = 1;
-      let numberedMessages = message.data.map(element => {
-          element.order = i++;
-          return element;
-      });
+      let numberedMessages = message.data.map((element, index) => ({
+        ...element,
+        order: element.order ?? index + 1,
+      }));
 
       // filter on unread messages
       let unread = numberedMessages.filter(sms => sms.unread == true);

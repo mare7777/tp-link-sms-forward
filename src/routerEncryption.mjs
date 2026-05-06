@@ -152,6 +152,9 @@ class Encryption {
   setSeq(seq) {
     this.seq = parseInt(seq);
   }
+  setHash(login, password) {
+    this.hash = crypto.createHash('md5').update(`${login}${password}`, 'utf8').digest('hex');
+  }
   genAESKey() {
     this.aes.genKey();
     this.aesKeyString = this.aes.getKeyString();
