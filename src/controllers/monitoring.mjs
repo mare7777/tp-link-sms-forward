@@ -8,6 +8,15 @@
 /**
  * @swagger
  * path:
+ *  /monitoring/health:
+ *    get:
+ *      summary: Lightweight health endpoint for container liveness/readiness checks
+ *      description:
+ *        Returns process-level health information without contacting the router.
+ *      tags: [Monitoring]
+ *      responses:
+ *        "200":
+ *          description: Service is healthy
  *  /monitoring/metrics:
  *    get:
  *      summary: Prometheus metrics endpoint WIP
@@ -22,6 +31,18 @@
 import express from 'express';
 
 const router = express.Router();
+
+router.get('/health', async function (req, res) {
+  res.json({
+    status: 200,
+    data: {
+      ok: true,
+      service: 'api-bridge',
+      uptimeSeconds: Math.round(process.uptime()),
+      timestamp: new Date().toISOString(),
+    },
+  });
+});
 
 router.get('/metrics', async function (req, res) {
   res.send('WIP');

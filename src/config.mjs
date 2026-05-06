@@ -1,9 +1,38 @@
 import fs from 'fs'
 
-function parseValue(value) {
-  if (value === 'true') return true;
-  if (value === 'false') return false;
-  if (value !== '' && !Number.isNaN(Number(value))) return Number(value);
+const BOOLEAN_CONFIG_PATHS = new Set([
+  'telegram_enabled',
+]);
+
+const NUMBER_CONFIG_PATHS = new Set([
+  'api_listen_port',
+  'api_client_polling_delay',
+  'api_client_polling_jitter_ms',
+  'sms_gateway_listen_port',
+  'telegram_max_retries',
+  'telegram_retry_initial_backoff_ms',
+  'telegram_retry_max_backoff_ms',
+  'telegram_timeout_ms',
+]);
+
+function hasEnvironmentConfig() {
+  if (process.env.CONFIG_JSON) {
+    return true;
+  }
+
+  return Object.keys(process.env).some((key) => key.startsWith('CONFIG__'));
+}
+
+function parseValue(path, value) {
+  if (BOOLEAN_CONFIG_PATHS.has(path)) {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+  }
+
+  if (NUMBER_CONFIG_PATHS.has(path)) {
+    if (value !== '' && !Number.isNaN(Number(value))) return Number(value);
+  }
+
   return value;
 }
 
@@ -51,7 +80,11 @@ export function loadConfig(configFilePath = './config.json') {
     const rawConfig = fs.readFileSync(configFilePath);
     config = JSON.parse(rawConfig);
   } catch (exception) {
-    throw new Error('Config file ' + configFilePath + ' could not be read');
+    if (hasEnvironmentConfig()) {
+      config = {};
+    } else {
+      throw new Error('Config file ' + configFilePath + ' could not be read');
+    }
   }
 
   if (process.env.CONFIG_JSON) {
@@ -74,7 +107,7 @@ export function loadConfig(configFilePath = './config.json') {
       .split('__')
       .join('.');
 
-    setByPath(config, path, parseValue(value));
+    setByPath(config, path, parseValue(path, value));
   }
 
   return config;

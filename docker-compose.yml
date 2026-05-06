@@ -1,10 +1,15 @@
-version: "2.2"
 services:
   tp-link-api-bridge:
     build: .
     container_name: tp-link-api-bridge
-    volumes:
-      - ./config.json:/home/node/tp-link-modem-router-master/config.json
+    environment:
+      NODE_ENV: production
+      CONFIG__URL: ${CONFIG__URL:-http://192.168.1.1}
+      CONFIG__LOGIN: ${CONFIG__LOGIN:-admin}
+      CONFIG__PASSWORD: ${CONFIG__PASSWORD:-myrouterpassword}
+      CONFIG__API_LISTEN_HOST: ${CONFIG__API_LISTEN_HOST:-0.0.0.0}
+      CONFIG__API_LISTEN_PORT: ${CONFIG__API_LISTEN_PORT:-3000}
+      CONFIG__API_USERS__APIUSER: ${CONFIG__API_USERS__APIUSER:-pleasechangeme}
     ports: 
       - "3000:3000"
     restart: unless-stopped
