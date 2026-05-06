@@ -188,7 +188,7 @@ ghcr.io/mare7777/tp-link-sms-forward
 
 本 repo 已補上 workflow：
 
-- [`.github/workflows/publish-ghcr.yml`](/C:/users/mare7/project/tp-link-sms_forward/.github/workflows/publish-ghcr.yml:1)
+- [`.github/workflows/publish-ghcr.yml`](./.github/workflows/publish-ghcr.yml)
 
 ### Workflow 行為
 
