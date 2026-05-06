@@ -11,7 +11,8 @@ LABEL org.opencontainers.image.licenses="GPL-3.0-or-later"
 
 COPY package.json yarn.lock ./
 RUN corepack enable \
-  && yarn install --production --non-interactive \
+  && yarn install --immutable \
+  && yarn workspaces focus --all --production \
   && yarn cache clean
 
 COPY --chown=node:node . .
