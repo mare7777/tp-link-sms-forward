@@ -10,9 +10,10 @@ LABEL org.opencontainers.image.source="https://github.com/mare7777/tp-link-sms-f
 LABEL org.opencontainers.image.licenses="GPL-3.0-or-later"
 
 COPY package.json yarn.lock ./
+
 RUN corepack enable \
-  && yarn install --immutable \
-  && yarn workspaces focus --all --production \
+  && corepack prepare yarn@1.22.22 --activate \
+  && yarn install --frozen-lockfile --production=true \
   && yarn cache clean
 
 COPY --chown=node:node . .
