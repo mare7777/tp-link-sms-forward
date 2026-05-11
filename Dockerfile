@@ -12,9 +12,7 @@ LABEL org.opencontainers.image.licenses="GPL-3.0-or-later"
 COPY package.json yarn.lock ./
 
 RUN corepack enable \
-  && corepack prepare yarn@1.22.22 --activate \
-  && yarn install --frozen-lockfile --production=true \
-  && yarn cache clean
+  && yarn install --immutable --mode=skip-build
 
 COPY --chown=node:node . .
 
