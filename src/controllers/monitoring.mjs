@@ -32,8 +32,8 @@ import express from 'express';
 
 const router = express.Router();
 
-router.get('/health', async function (req, res) {
-  res.json({
+function buildHealthPayload() {
+  return {
     status: 200,
     data: {
       ok: true,
@@ -41,7 +41,11 @@ router.get('/health', async function (req, res) {
       uptimeSeconds: Math.round(process.uptime()),
       timestamp: new Date().toISOString(),
     },
-  });
+  };
+}
+
+router.get('/health', async function (req, res) {
+  res.json(buildHealthPayload());
 });
 
 router.get('/metrics', async function (req, res) {

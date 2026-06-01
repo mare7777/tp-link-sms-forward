@@ -317,8 +317,13 @@ async function fetchInboxEntries(client, unreadFilter) {
 
   const unreadInboxResponse = await client.execute([payloadResetInboxCursor, payloadInboxUnread]);
   const unreadInboxEntries = normalizeInboxEntries(unreadInboxResponse.data);
+  const resolvedUnreadInboxEntries = resolveUnreadInboxEntries(fullInboxEntries, unreadInboxEntries);
 
-  return resolveUnreadInboxEntries(fullInboxEntries, unreadInboxEntries);
+  if (resolvedUnreadInboxEntries.length > 0) {
+    return resolvedUnreadInboxEntries;
+  }
+
+  return fullInboxEntries.filter((entry) => entry.unread == true);
 }
 
 function addToSeenCache(entries) {

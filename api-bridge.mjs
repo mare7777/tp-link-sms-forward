@@ -56,11 +56,28 @@ const app = express();
 
 const client = new RouterClient(config.url, config.login, config.password);
 
+function buildHealthPayload() {
+  return {
+    status: 200,
+    data: {
+      ok: true,
+      service: 'api-bridge',
+      uptimeSeconds: Math.round(process.uptime()),
+      timestamp: new Date().toISOString(),
+    },
+  };
+}
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true })); // support encoded bodies
 app.use(nocache());
 app.set('router_client', client);
 app.disable('x-powered-by');
+
+// Local container health checks should not depend on API auth credentials.
+app.get('/healthz', (req, res) => {
+  res.json(buildHealthPayload());
+});
 
 import smsRoutes from './src/controllers/sms.mjs';
 import monitoringRoutes from './src/controllers/monitoring.mjs';
