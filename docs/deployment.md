@@ -50,13 +50,13 @@ For publishing from GitHub Actions:
 
 ## Synology Container Manager
 
-Synology deployment uses [docker-compose.synology.yml](../docker-compose.synology.yml) and [synology.env.example](../synology.env.example).
+Synology deployment uses [docker-compose.yml](../docker-compose.yml) and [synology.env.example](../synology.env.example).
 
 Recommended layout:
 
 ```text
 /volume1/docker/tp-link-sms-forward/
-  docker-compose.synology.yml
+  docker-compose.yml
   .env
 ```
 
@@ -72,7 +72,7 @@ Basic flow:
 1. Copy `synology.env.example` to `.env`
 2. Fill in router, API, and optional Telegram settings
 3. Ensure GHCR access is configured if you pull from a private package
-4. Create a new project in Container Manager using `docker-compose.synology.yml`
+4. Create a new project in Container Manager using `docker-compose.yml`
 5. Verify all three services start: `api-bridge`, `sms-cat`, `smtp-gateway`
 
 ## Environment File Layout

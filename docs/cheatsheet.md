@@ -45,7 +45,7 @@ docker compose up -d
 cp synology.env.example .env
 ```
 
-Then upload `docker-compose.synology.yml` into Container Manager and create a new project.
+Then upload `docker-compose.yml` into Container Manager and create a new project.
 
 ## Telegram
 
