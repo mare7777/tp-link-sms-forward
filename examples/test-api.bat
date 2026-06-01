@@ -79,6 +79,6 @@ echo.
 echo 提示:
 echo - 如果看到 "status":200，表示成功
 echo - 如果看到 "status":400 或 500，表示有錯誤
-echo - 詳細資訊請查看 TESTING.md
+echo - 詳細資訊請查看 docs/operations.md
 
 pause

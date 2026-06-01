@@ -161,7 +161,7 @@ if (allChecksPass) {
   console.log('   然後開啟瀏覽器: http://127.0.0.1:3000');
   console.log('');
   console.log('3. 查看完整測試指南:');
-  console.log('   cat TESTING.md');
+  console.log('   cat docs/operations.md');
 } else {
   console.log('❌ 有些檢查未通過，請修正上述問題');
   console.log('');
