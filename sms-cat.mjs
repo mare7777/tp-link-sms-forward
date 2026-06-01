@@ -17,6 +17,13 @@ const argv = minimist(process.argv.slice(2), {
   string: '_', // prevent string to number conversion
 });
 
+function maskSmsSender(from) {
+  if (!from) return 'unknown';
+  const value = String(from);
+  if (value.length <= 4) return value;
+  return `${value.slice(0, 2)}***${value.slice(-2)}`;
+}
+
 if (typeof argv['config'] !== 'undefined') {
   configFilePath = argv['config'];
 }
@@ -341,7 +348,18 @@ class SmsPoller {
 }
 
 function on_sms_received(sms) {
-  logger.info("Received SMS", {sms});
+  if (config.sms_log_full_content === true) {
+    logger.info('Received SMS', { sms });
+    return;
+  }
+
+  logger.info('Received SMS', {
+    sms: {
+      from: maskSmsSender(sms.from),
+      receivedTime: sms.receivedTime,
+      contentLength: sms.content?.length ?? 0,
+    },
+  });
 }
 
 const poller = new SmsPoller({

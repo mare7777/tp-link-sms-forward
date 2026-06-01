@@ -2,3 +2,8 @@ config.json
 node_modules
 _trash
 .npm-cache
+.env
+*.env
+.env.*
+state/
+sms-cursor.json

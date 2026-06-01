@@ -6,10 +6,11 @@ services:
       NODE_ENV: production
       CONFIG__URL: ${CONFIG__URL:-http://192.168.1.1}
       CONFIG__LOGIN: ${CONFIG__LOGIN:-admin}
-      CONFIG__PASSWORD: ${CONFIG__PASSWORD:-myrouterpassword}
+      CONFIG__PASSWORD: ${CONFIG__PASSWORD:?CONFIG__PASSWORD is required}
       CONFIG__API_LISTEN_HOST: ${CONFIG__API_LISTEN_HOST:-0.0.0.0}
       CONFIG__API_LISTEN_PORT: ${CONFIG__API_LISTEN_PORT:-3000}
-      CONFIG__API_USERS__APIUSER: ${CONFIG__API_USERS__APIUSER:-pleasechangeme}
+      CONFIG__SMS_LOG_FULL_CONTENT: ${CONFIG__SMS_LOG_FULL_CONTENT:-false}
+      CONFIG__API_USERS__APIUSER: ${CONFIG__API_USERS__APIUSER:?CONFIG__API_USERS__APIUSER is required}
     ports: 
       - "3000:3000"
     restart: unless-stopped

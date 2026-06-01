@@ -2,6 +2,7 @@ import fs from 'fs'
 
 const BOOLEAN_CONFIG_PATHS = new Set([
   'telegram_enabled',
+  'sms_log_full_content',
 ]);
 
 const NUMBER_CONFIG_PATHS = new Set([

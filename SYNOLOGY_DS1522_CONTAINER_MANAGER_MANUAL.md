@@ -422,3 +422,5 @@ curl -u apiuser:你的API密碼 http://NAS-IP:3000/api/v1/monitoring/health
 - The container health check now calls `http://127.0.0.1:3000/healthz` without Basic Auth.
 - `/healthz` is intended only for container liveness/readiness checks inside Docker.
 - Prefer `Upload docker-compose.yml` in Container Manager instead of editing YAML in the DSM editor.
+
+- `CONFIG__SMS_LOG_FULL_CONTENT=false` is the recommended default so runtime logs do not store full SMS bodies.
